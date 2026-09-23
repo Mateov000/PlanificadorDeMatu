@@ -634,5 +634,91 @@ describe('Solver & Panic Button Performance', () => {
     expect(simResult.schedule.find((e) => e.id === 'sim-extra-shift')).toBeDefined();
     expect(simResult.schedule.find((e) => e.id === 'real-class')).toBeDefined();
   });
+
+  it('Paso 3.1: Offline-first synchronization saves and retrieves cached events from local storage', async () => {
+    const { saveLocalCachedEvents, getLocalCachedEvents } = await import('../src/lib/sync/supabaseSync');
+
+    // Mock localStorage in Node/Vitest environment
+    const storage: Record<string, string> = {};
+    global.localStorage = {
+      getItem: (key: string) => storage[key] || null,
+      setItem: (key: string, value: string) => { storage[key] = value; },
+      removeItem: (key: string) => { delete storage[key]; },
+      clear: () => {},
+      length: 0,
+      key: () => null,
+    };
+
+    const sampleEvent: Event = {
+      id: 'local-test-1',
+      title: 'Estudio Redes Offline',
+      startTime: new Date('2026-09-24T10:00:00Z'),
+      endTime: new Date('2026-09-24T12:00:00Z'),
+      durationMinutes: 120,
+      cognitiveLoad: 3,
+      physicalLoad: 0,
+      energyDrain: 'normal',
+      location: 'Casa',
+    };
+
+    saveLocalCachedEvents([sampleEvent]);
+    const retrieved = getLocalCachedEvents();
+
+    expect(retrieved).not.toBeNull();
+    expect(retrieved?.length).toBe(1);
+    expect(retrieved?.[0].title).toBe('Estudio Redes Offline');
+    expect(retrieved?.[0].startTime).toBeInstanceOf(Date);
+  });
+
+  it('Paso 3.2: Webcal iCal feed masks sensitive events with display alias and CLASS:PRIVATE', async () => {
+    const { generateIcsCalendar } = await import('../src/lib/calendar/icsGenerator');
+
+    const testEvents: Event[] = [
+      {
+        id: 'evt-regular',
+        title: 'Cursada Redes',
+        startTime: new Date('2026-09-24T14:00:00Z'),
+        endTime: new Date('2026-09-24T16:00:00Z'),
+        durationMinutes: 120,
+        isSensitive: false,
+        cognitiveLoad: 2,
+        physicalLoad: 0,
+        energyDrain: 'normal',
+        location: 'Facultad',
+      },
+      {
+        id: 'evt-sensitive',
+        title: 'Buffer Descenso Familiar Cannabis',
+        displayAlias: 'Compromiso Personal',
+        description: 'Detalles íntimos no exportables',
+        startTime: new Date('2026-09-24T23:00:00Z'),
+        endTime: new Date('2026-09-25T01:00:00Z'),
+        durationMinutes: 120,
+        isSensitive: true,
+        cannabisConsumed: true,
+        cognitiveLoad: 0,
+        physicalLoad: 0,
+        energyDrain: 'low',
+        location: 'Casa',
+      },
+    ];
+
+    const icsFeed = generateIcsCalendar(testEvents, 'PlanificadorDeMatu Test Feed');
+
+    // Debe ser formato iCalendar válido
+    expect(icsFeed).toContain('BEGIN:VCALENDAR');
+    expect(icsFeed).toContain('VERSION:2.0');
+    expect(icsFeed).toContain('END:VCALENDAR');
+
+    // Evento regular aparece público
+    expect(icsFeed).toContain('SUMMARY:Cursada Redes');
+    expect(icsFeed).toContain('CLASS:PUBLIC');
+
+    // Evento sensible tiene título enmascarado y clase privada
+    expect(icsFeed).not.toContain('Buffer Descenso Familiar Cannabis');
+    expect(icsFeed).not.toContain('Detalles íntimos no exportables');
+    expect(icsFeed).toContain('SUMMARY:Compromiso Personal');
+    expect(icsFeed).toContain('CLASS:PRIVATE');
+  });
 });
 
