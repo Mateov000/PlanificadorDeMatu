@@ -14,7 +14,7 @@ CREATE TYPE archetype_type AS ENUM (
 
 -- 2. Categorías de Usuario
 CREATE TABLE IF NOT EXISTS categories (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   name VARCHAR(100) NOT NULL,
   slug VARCHAR(100) NOT NULL,
@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS categories (
 
 -- 3. Tabla Principal de Eventos
 CREATE TABLE IF NOT EXISTS events (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   category_id UUID REFERENCES categories(id) ON DELETE SET NULL,
   title VARCHAR(255) NOT NULL,
@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS user_parameters (
 
 -- 5. Matriz de Traslados Espaciales
 CREATE TABLE IF NOT EXISTS travel_matrix (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   origin VARCHAR(100) NOT NULL,
   destination VARCHAR(100) NOT NULL,
@@ -106,7 +106,7 @@ CREATE TABLE IF NOT EXISTS travel_matrix (
 
 -- 6. Reglas de Auto-Mapeo Semántico (Google Calendar Triage)
 CREATE TABLE IF NOT EXISTS auto_mapping_rules (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   pattern VARCHAR(100) NOT NULL,
   match_type VARCHAR(20) DEFAULT 'contains',
@@ -120,7 +120,7 @@ CREATE TABLE IF NOT EXISTS auto_mapping_rules (
 
 -- 7. Tokens para Live Sync Webcal Feed (iCal seguro)
 CREATE TABLE IF NOT EXISTS calendar_sync_tokens (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   token VARCHAR(64) UNIQUE NOT NULL,
   is_active BOOLEAN DEFAULT TRUE,
