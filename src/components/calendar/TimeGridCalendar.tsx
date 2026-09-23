@@ -91,15 +91,22 @@ export const TimeGridCalendar: React.FC = () => {
     return 'Actual';
   }, [currentWeekStart]);
 
-  // Cantidad de eventos programados en esta semana
+  // Cantidad de eventos programados en esta semana (incluyendo descansos e intersecciones)
   const weekEventsCount = useMemo(() => {
     if (weekDays.length < 7) return 0;
     const startMs = weekDays[0].getTime();
     const endMs = startMs + 7 * 24 * 60 * 60 * 1000;
     return events.filter((ev) => {
-      if (!ev.startTime) return false;
-      const s = typeof ev.startTime === 'string' ? new Date(ev.startTime).getTime() : ev.startTime.getTime();
-      return s >= startMs && s < endMs;
+      if (!ev.startTime) {
+        if (ev.deadline) {
+          const d = parseDate(ev.deadline)?.getTime();
+          return d !== undefined && d >= startMs && d < endMs;
+        }
+        return false;
+      }
+      const s = parseDate(ev.startTime)?.getTime() ?? 0;
+      const e = parseDate(ev.endTime)?.getTime() ?? (s + (ev.durationMinutes || 60) * 60 * 1000);
+      return s < endMs && e > startMs;
     }).length;
   }, [events, weekDays]);
 

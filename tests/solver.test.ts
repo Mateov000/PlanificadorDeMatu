@@ -1103,6 +1103,51 @@ describe('Periodicidad y Eventos Recurrentes Personalizables', () => {
     expect(afterSeriesDelete.find((e) => e.id === parentId)).toBeUndefined();
     expect(afterSeriesDelete.find((e) => e.id === children[1].id)).toBeUndefined();
   });
+
+  it('repeated recalculateSchedule preserves exact sleep count with zero duplicates and allows emptying week', async () => {
+    const { useScheduleStore, initialEvents } = await import('../src/lib/store/scheduleStore');
+    useScheduleStore.setState({ events: initialEvents });
+    const store = useScheduleStore.getState();
+
+    store.goToCurrentWeek();
+    
+    // Ejecutar recálculo 6 veces consecutivas (simulando clics repetidos en Re-optimizar)
+    for (let i = 0; i < 6; i++) {
+      store.recalculateSchedule();
+    }
+
+    const eventsAfter = useScheduleStore.getState().events;
+    const sleepEvents = eventsAfter.filter((e) => e.categoryId === 'cat-sleep' || e.id.startsWith('sleep-bio-'));
+    
+    // Debe haber exactamente 8 bloques de sueño (de domingo previo a domingo de la semana)
+    expect(sleepEvents.length).toBe(8);
+
+    // Todos los IDs deben ser estrictamente únicos (cero colisiones)
+    const sleepIds = sleepEvents.map((e) => e.id);
+    const uniqueIds = new Set(sleepIds);
+    expect(uniqueIds.size).toBe(sleepEvents.length);
+
+    // Ningún par de bloques de sueño debe solaparse
+    for (let i = 0; i < sleepEvents.length; i++) {
+      for (let j = i + 1; j < sleepEvents.length; j++) {
+        const s1 = new Date(sleepEvents[i].startTime!).getTime();
+        const e1 = new Date(sleepEvents[i].endTime!).getTime();
+        const s2 = new Date(sleepEvents[j].startTime!).getTime();
+        const e2 = new Date(sleepEvents[j].endTime!).getTime();
+        const overlaps = s1 < e2 && e1 > s2;
+        expect(overlaps).toBe(false);
+      }
+    }
+
+    // Vaciar la semana actual
+    store.deleteCurrentWeekEvents();
+    const eventsAfterDelete = useScheduleStore.getState().events;
+    const sleepEventsAfterDelete = eventsAfterDelete.filter((e) => e.categoryId === 'cat-sleep' || e.id.startsWith('sleep-bio-'));
+    
+    // Todos los eventos de sueño y bloques de esta semana deben haber sido completamente eliminados
+    expect(sleepEventsAfterDelete.length).toBe(0);
+    expect(eventsAfterDelete.length).toBe(0);
+  });
 });
 
 

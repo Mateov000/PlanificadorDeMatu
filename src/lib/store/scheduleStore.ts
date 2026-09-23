@@ -141,13 +141,17 @@ export function synthesizeBiologicalSleepEvents(
 
   const sleepEvents: Event[] = [];
   const targetSleepMins = params.targetSleepMinutes || 480;
+  const pad = (n: number) => n.toString().padStart(2, '0');
 
   for (let dayOffset = -1; dayOffset < 7; dayOffset++) {
     const dayDate = new Date(monday);
     dayDate.setDate(monday.getDate() + dayOffset);
+    const dateKey = `${dayDate.getFullYear()}-${pad(dayDate.getMonth() + 1)}-${pad(dayDate.getDate())}`;
+    const sleepId = `sleep-bio-${dateKey}`;
 
-    // Buscar si hay eventos nocturnos / disruptores que finalicen tarde en este día
+    // Buscar si hay eventos nocturnos / disruptores que finalicen tarde en este día (excluyendo descanso)
     const nightDisruptors = events.filter((ev) => {
+      if (ev.categoryId === 'cat-sleep' || ev.id.startsWith('sleep-bio-')) return false;
       if (!ev.startTime || !ev.endTime) return false;
       const s = new Date(ev.startTime);
       const e = new Date(ev.endTime);
@@ -167,7 +171,7 @@ export function synthesizeBiologicalSleepEvents(
       const sleepEnd = new Date(sleepStart.getTime() + targetSleepMins * 60 * 1000);
 
       sleepEvents.push({
-        id: `sleep-bio-${dayOffset}`,
+        id: sleepId,
         categoryId: 'cat-sleep',
         title: `Sueño Biológico Garantizado (${(targetSleepMins / 60).toFixed(0)}h)`,
         startTime: sleepStart,
@@ -188,7 +192,7 @@ export function synthesizeBiologicalSleepEvents(
       const sleepEnd = new Date(sleepStart.getTime() + targetSleepMins * 60 * 1000);
 
       sleepEvents.push({
-        id: `sleep-bio-${dayOffset}`,
+        id: sleepId,
         categoryId: 'cat-sleep',
         title: `Sueño Nocturno Reparador (${(targetSleepMins / 60).toFixed(0)}h)`,
         startTime: sleepStart,
@@ -403,6 +407,7 @@ export const initialEvents: Event[] = preSolved.schedule.length > 0 ? preSolved.
 
 interface ScheduleStore {
   events: Event[];
+  previousEvents: Event[] | null;
   proposedSchedule: Event[] | null;
   categories: Category[];
   currentWeekStart: Date;
@@ -461,6 +466,7 @@ interface ScheduleStore {
 
 export const useScheduleStore = create<ScheduleStore>((set, get) => ({
   events: initialEvents,
+  previousEvents: null,
   proposedSchedule: null,
   categories: initialCategories,
   currentWeekStart: currentMonday,
@@ -509,7 +515,18 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
     const weekStartMs = currentWeekStart.getTime();
     const weekEndMs = weekStartMs + 7 * 24 * 60 * 60 * 1000;
 
+    // Ventana biológica extendida para limpiar también el descanso que bordea la semana
+    const bioWindowStartMs = weekStartMs - 12 * 60 * 60 * 1000;
+
     const remainingEvents = events.filter((ev) => {
+      // 1. Eventos de descanso biológico que pertenezcan o toquen esta semana
+      if (ev.categoryId === 'cat-sleep' || ev.id.startsWith('sleep-bio-')) {
+        const s = ev.startTime ? new Date(ev.startTime).getTime() : 0;
+        const e = ev.endTime ? new Date(ev.endTime).getTime() : s + (ev.durationMinutes || 480) * 60 * 1000;
+        const touchesThisWeek = s < weekEndMs && e > weekStartMs;
+        if (touchesThisWeek || (s >= bioWindowStartMs && s < weekEndMs)) return false;
+      }
+
       if (!ev.startTime) {
         if (ev.deadline) {
           const d = new Date(ev.deadline).getTime();
@@ -638,24 +655,36 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
     const weekStartMs = weekMon.getTime();
     const weekEndMs = weekStartMs + 7 * 24 * 60 * 60 * 1000;
 
-    // Preservar eventos que pertenezcan a otras semanas
+    // Ventana biológica de la semana: desde el domingo previo 12:00 hs hasta el lunes siguiente 12:00 hs
+    const bioWindowStartMs = weekStartMs - 12 * 60 * 60 * 1000;
+    const bioWindowEndMs = weekEndMs + 12 * 60 * 60 * 1000;
+
+    const isCurrentWeekSleep = (e: Event) => {
+      if (e.categoryId !== 'cat-sleep' && !e.id.startsWith('sleep-bio-')) return false;
+      if (!e.startTime) return false;
+      const s = new Date(e.startTime).getTime();
+      return s >= bioWindowStartMs && s < bioWindowEndMs;
+    };
+
+    // Preservar eventos que pertenezcan a otras semanas (excluyendo cualquier descanso que toque esta semana)
     const otherWeeksEvents = events.filter((e) => {
+      if (isCurrentWeekSleep(e)) return false;
       if (!e.startTime) return false;
       const s = new Date(e.startTime).getTime();
       return s < weekStartMs || s >= weekEndMs;
     });
 
-    // Eventos de la semana en vista (o flotantes sin fecha fija)
+    // Eventos de la semana en vista (excluyendo descanso previo para recalcularlo de forma limpia)
     const thisWeekEvents = events.filter((e) => {
+      if (isCurrentWeekSleep(e)) return false;
       if (!e.startTime) return true;
       const s = new Date(e.startTime).getTime();
       return s >= weekStartMs && s < weekEndMs;
     });
 
-    // 1. Filtrar eventos de sueño previamente generados para esta semana
-    const nonSleepEvents = thisWeekEvents.filter((e) => !e.id.startsWith('sleep-bio-'));
-    const freshSleepBlocks = synthesizeBiologicalSleepEvents(nonSleepEvents, params, travelMatrix, weekMon);
-    const candidateEvents = [...nonSleepEvents, ...freshSleepBlocks];
+    // Sintetizar bloques de descanso frescos con ID determinista de fecha YYYY-MM-DD
+    const freshSleepBlocks = synthesizeBiologicalSleepEvents(thisWeekEvents, params, travelMatrix, weekMon);
+    const candidateEvents = [...thisWeekEvents, ...freshSleepBlocks];
 
     const context: ConstraintContext = {
       candidateEvents,
@@ -674,9 +703,17 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
       diff.summary = '¡Tu agenda ya se encuentra en su distribución matemática óptima! Todos tus turnos fijos, descansos biológicos y metas de estudio respetan las restricciones sin conflictos.';
     }
 
+    // Deduplicación estricta por ID garantizando 0 colisiones y 0 acumulaciones
+    const uniqueMap = new Map<string, Event>();
+    for (const ev of [...otherWeeksEvents, ...result.schedule]) {
+      uniqueMap.set(ev.id, ev);
+    }
+    const finalEvents = Array.from(uniqueMap.values());
+
     set({
-      events: [...otherWeeksEvents, ...result.schedule],
-      proposedSchedule: result.schedule,
+      previousEvents: [...events],
+      events: finalEvents,
+      proposedSchedule: finalEvents,
       activeDiff: diff,
       isDiffModalOpen: true,
     });
@@ -750,6 +787,7 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
     if (proposedSchedule) {
       set({
         events: proposedSchedule,
+        previousEvents: null,
         proposedSchedule: null,
         activeDiff: null,
         isDiffModalOpen: false,
@@ -758,7 +796,10 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
   },
 
   discardProposedSchedule: () => {
+    const { previousEvents, events } = get();
     set({
+      events: previousEvents || events,
+      previousEvents: null,
       proposedSchedule: null,
       activeDiff: null,
       isDiffModalOpen: false,
