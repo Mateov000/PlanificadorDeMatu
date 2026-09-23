@@ -38,7 +38,7 @@ export function synthesizeBiologicalSleepEvents(
   const sleepEvents: Event[] = [];
   const targetSleepMins = params.targetSleepMinutes || 480;
 
-  for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
+  for (let dayOffset = -1; dayOffset < 7; dayOffset++) {
     const dayDate = new Date(monday);
     dayDate.setDate(monday.getDate() + dayOffset);
 
@@ -78,9 +78,9 @@ export function synthesizeBiologicalSleepEvents(
         energyDrain: 'low',
       });
     } else {
-      // Noche regular sin disrupción: 23:30 - 07:30
+      // Noche regular sin disrupción: 23:00 - 07:00
       const sleepStart = new Date(dayDate);
-      sleepStart.setHours(23, 30, 0, 0);
+      sleepStart.setHours(23, 0, 0, 0);
       const sleepEnd = new Date(sleepStart.getTime() + targetSleepMins * 60 * 1000);
 
       sleepEvents.push({

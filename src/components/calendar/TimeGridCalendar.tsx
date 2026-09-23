@@ -42,24 +42,58 @@ export const TimeGridCalendar: React.FC = () => {
 
   const todayStr = useMemo(() => new Date().toDateString(), []);
 
-  // Agrupar eventos por día
-  const eventsByDay = useMemo(() => {
-    const map = new Map<number, Event[]>();
+  // Agrupar eventos por día seccionando con precisión matemática los bloques que cruzan la medianoche
+  const slicesByDay = useMemo(() => {
+    const map = new Map<
+      number,
+      Array<{
+        sliceId: string;
+        event: Event;
+        topPx: number;
+        heightPx: number;
+        isContinuationFromPrevDay: boolean;
+        continuesToNextDay: boolean;
+      }>
+    >();
     for (let i = 0; i < 7; i++) map.set(i, []);
 
-    for (const ev of events) {
-      const start = parseDate(ev.startTime);
-      if (!start) continue;
+    for (let dayIdx = 0; dayIdx < weekDays.length; dayIdx++) {
+      const d = weekDays[dayIdx];
+      const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0).getTime();
+      const dayEnd = dayStart + 24 * 60 * 60 * 1000;
 
-      const dayIdx = weekDays.findIndex(
-        (wd) =>
-          wd.getFullYear() === start.getFullYear() &&
-          wd.getMonth() === start.getMonth() &&
-          wd.getDate() === start.getDate()
-      );
+      for (const ev of events) {
+        const evStart = parseDate(ev.startTime);
+        if (!evStart) continue;
 
-      if (dayIdx >= 0) {
-        map.get(dayIdx)?.push(ev);
+        const evEnd =
+          parseDate(ev.endTime) ||
+          new Date(evStart.getTime() + (ev.durationMinutes || 60) * 60 * 1000);
+
+        const startMillis = evStart.getTime();
+        const endMillis = evEnd.getTime();
+
+        // Calcular la intersección del evento con la ventana de 24h de este día
+        const sliceStart = Math.max(startMillis, dayStart);
+        const sliceEnd = Math.min(endMillis, dayEnd);
+
+        if (sliceEnd > sliceStart) {
+          const topPx = (sliceStart - dayStart) / (60 * 1000);
+          const durationMins = (sliceEnd - sliceStart) / (60 * 1000);
+          const heightPx = Math.max(18, durationMins);
+
+          const isContinuationFromPrevDay = startMillis < dayStart;
+          const continuesToNextDay = endMillis > dayEnd;
+
+          map.get(dayIdx)?.push({
+            sliceId: `${ev.id}-slice-${dayIdx}`,
+            event: ev,
+            topPx,
+            heightPx,
+            isContinuationFromPrevDay,
+            continuesToNextDay,
+          });
+        }
       }
     }
 
@@ -110,7 +144,6 @@ export const TimeGridCalendar: React.FC = () => {
         {/* 7 Columnas de Días */}
         {weekDays.map((day, dayIdx) => {
           const isToday = day.toDateString() === todayStr;
-          const dayEvents = eventsByDay.get(dayIdx) || [];
 
           return (
             <div
@@ -190,31 +223,26 @@ export const TimeGridCalendar: React.FC = () => {
                 </div>
               )}
 
-              {/* Render de Bloques de Eventos Proporcionales */}
-              {dayEvents.map((ev) => {
-                const start = parseDate(ev.startTime);
-                if (!start) return null;
-
-                const startMinutes = start.getHours() * 60 + start.getMinutes();
-                const topPx = startMinutes; // 1px = 1 min
-                const heightPx = Math.max(26, ev.durationMinutes);
-
-                const category = categories.find((c) => c.id === ev.categoryId);
+              {/* Render de Bloques de Eventos Proporcionales (con partición exacta en medianoche) */}
+              {(slicesByDay.get(dayIdx) || []).map((slice) => {
+                const category = categories.find((c) => c.id === slice.event.categoryId);
                 const color = category?.color || '#3b82f6';
 
                 return (
                   <EventBlock
-                    key={ev.id}
-                    event={ev}
-                    topPx={topPx}
-                    heightPx={heightPx}
+                    key={slice.sliceId}
+                    event={slice.event}
+                    topPx={slice.topPx}
+                    heightPx={slice.heightPx}
                     color={color}
-                    onClick={() => openEditModal(ev)}
+                    isContinuationFromPrevDay={slice.isContinuationFromPrevDay}
+                    continuesToNextDay={slice.continuesToNextDay}
+                    onClick={() => openEditModal(slice.event)}
                     onDragStart={(e) => {
-                      e.dataTransfer.setData('text/plain', ev.id);
+                      e.dataTransfer.setData('text/plain', slice.event.id);
                       e.dataTransfer.effectAllowed = 'move';
                     }}
-                    onDismissRepurpose={() => dismissAndRepurposeSlot(ev.id)}
+                    onDismissRepurpose={() => dismissAndRepurposeSlot(slice.event.id)}
                   />
                 );
               })}

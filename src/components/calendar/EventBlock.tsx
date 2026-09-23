@@ -12,6 +12,8 @@ interface EventBlockProps {
   onClick?: () => void;
   onDismissRepurpose?: () => void;
   onDragStart?: (e: React.DragEvent) => void;
+  isContinuationFromPrevDay?: boolean;
+  continuesToNextDay?: boolean;
 }
 
 function formatTime(d?: Date | string): string {
@@ -28,6 +30,8 @@ export const EventBlock: React.FC<EventBlockProps> = ({
   onClick,
   onDismissRepurpose,
   onDragStart,
+  isContinuationFromPrevDay,
+  continuesToNextDay,
 }) => {
   const isShort = heightPx < 45;
 
@@ -43,15 +47,20 @@ export const EventBlock: React.FC<EventBlockProps> = ({
         height: `${heightPx}px`,
         backgroundColor: `${color}25`, // 15% opacidad
         borderLeftColor: color,
-        borderTop: `1px solid ${color}40`,
+        borderTop: isContinuationFromPrevDay ? '1px dashed rgba(255, 255, 255, 0.4)' : `1px solid ${color}40`,
+        borderBottom: continuesToNextDay ? '1px dashed rgba(255, 255, 255, 0.4)' : `1px solid ${color}30`,
         borderRight: `1px solid ${color}30`,
-        borderBottom: `1px solid ${color}30`,
+        borderTopLeftRadius: isContinuationFromPrevDay ? '0px' : undefined,
+        borderTopRightRadius: isContinuationFromPrevDay ? '0px' : undefined,
+        borderBottomLeftRadius: continuesToNextDay ? '0px' : undefined,
+        borderBottomRightRadius: continuesToNextDay ? '0px' : undefined,
       }}
-      title={`${event.title} (${formatTime(event.startTime)} - ${formatTime(event.endTime)})`}
+      title={`${event.title} (${formatTime(event.startTime)} - ${formatTime(event.endTime)})${isContinuationFromPrevDay ? ' [Continuación]' : ''}${continuesToNextDay ? ' [Continúa mañana]' : ''}`}
     >
       <div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '4px' }}>
           <span className="event-title" style={{ color: '#ffffff' }}>
+            {isContinuationFromPrevDay && <span style={{ opacity: 0.7, marginRight: '3px' }}>↳</span>}
             {event.title}
           </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '3px', flexShrink: 0 }}>
@@ -63,8 +72,12 @@ export const EventBlock: React.FC<EventBlockProps> = ({
         </div>
 
         {!isShort && (
-          <div className="event-meta">
-            <span>{formatTime(event.startTime)} - {formatTime(event.endTime)}</span>
+          <div className="event-meta" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <span>
+              {isContinuationFromPrevDay ? '00:00' : formatTime(event.startTime)} -{' '}
+              {continuesToNextDay ? '24:00' : formatTime(event.endTime)}
+            </span>
+            {continuesToNextDay && <span style={{ fontSize: '0.65rem', color: '#93c5fd' }}>→ mañana</span>}
           </div>
         )}
       </div>
