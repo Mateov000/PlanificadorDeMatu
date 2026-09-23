@@ -1,0 +1,178 @@
+/* TimeGrid Proporcional Continuo */
+.timegrid-container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  background: rgba(11, 17, 32, 0.8);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+}
+
+.timegrid-header {
+  display: grid;
+  grid-template-columns: 60px repeat(7, 1fr);
+  background: rgba(15, 23, 42, 0.95);
+  border-bottom: 1px solid var(--border-subtle);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.timegrid-header-cell {
+  padding: 0.85rem 0.5rem;
+  text-align: center;
+  border-right: 1px solid var(--border-subtle);
+}
+
+.timegrid-header-cell.today {
+  background: rgba(59, 130, 246, 0.12);
+}
+
+.day-name {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+.day-number {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-top: 0.2rem;
+}
+
+.timegrid-body {
+  display: grid;
+  grid-template-columns: 60px repeat(7, 1fr);
+  position: relative;
+  height: 1440px; /* 24 horas * 60px por hora */
+  overflow-y: auto;
+}
+
+/* Columna de Horas (Gutter) */
+.time-gutter {
+  position: relative;
+  border-right: 1px solid var(--border-subtle);
+  background: rgba(15, 23, 42, 0.6);
+}
+
+.time-label {
+  position: absolute;
+  right: 8px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  transform: translateY(-50%);
+  user-select: none;
+}
+
+/* Columnas de Días */
+.day-column {
+  position: relative;
+  border-right: 1px solid var(--border-subtle);
+}
+
+.day-column.today {
+  background: rgba(59, 130, 246, 0.03);
+}
+
+/* Líneas Horarias Horizontales */
+.hour-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.05);
+  pointer-events: none;
+}
+
+.half-hour-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.02);
+  border-top: 1px dashed rgba(255, 255, 255, 0.03);
+  pointer-events: none;
+}
+
+/* Bloque de Evento Proporcional */
+.event-block {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  border-radius: var(--radius-sm);
+  padding: 0.45rem 0.6rem;
+  overflow: hidden;
+  cursor: pointer;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  border-left-width: 4px;
+  border-left-style: solid;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.event-block:hover {
+  transform: scale(1.02);
+  z-index: 30;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  filter: brightness(1.1);
+}
+
+.event-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.event-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.8);
+  margin-top: 0.2rem;
+  font-family: var(--font-mono);
+}
+
+.event-location {
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.7);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Indicador de Hora Actual */
+.current-time-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #f43f5e;
+  box-shadow: 0 0 10px #f43f5e;
+  z-index: 25;
+  pointer-events: none;
+}
+
+.current-time-dot {
+  position: absolute;
+  left: -5px;
+  top: -4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #f43f5e;
+  box-shadow: 0 0 8px #f43f5e;
+}
