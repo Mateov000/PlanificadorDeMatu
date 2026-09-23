@@ -112,6 +112,7 @@ interface ScheduleStore {
   isCreateModalOpen: boolean;
   createModalInitialTimes: { start: Date; end: Date } | null;
   isWhatIfModalOpen: boolean;
+  isOnboardingModalOpen: boolean;
   frictionFeedback: { eventId: string; eventTitle: string; x: number; y: number } | null;
 
   // Acciones
@@ -127,6 +128,7 @@ interface ScheduleStore {
   setTriageModalOpen: (open: boolean) => void;
   setCreateModalOpen: (open: boolean, times?: { start: Date; end: Date }) => void;
   setWhatIfModalOpen: (open: boolean) => void;
+  setOnboardingModalOpen: (open: boolean) => void;
   setFrictionFeedback: (feedback: { eventId: string; eventTitle: string; x: number; y: number } | null) => void;
 
   // Métodos del Solver CSP
@@ -151,11 +153,13 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
   isCreateModalOpen: false,
   createModalInitialTimes: null,
   isWhatIfModalOpen: false,
+  isOnboardingModalOpen: false,
   frictionFeedback: null,
 
   setCreateModalOpen: (open, times) =>
     set({ isCreateModalOpen: open, createModalInitialTimes: times || null }),
   setWhatIfModalOpen: (open) => set({ isWhatIfModalOpen: open }),
+  setOnboardingModalOpen: (open) => set({ isOnboardingModalOpen: open }),
   setFrictionFeedback: (feedback) => set({ frictionFeedback: feedback }),
 
   addEvent: (event) => set((state) => ({ events: [...state.events, event] })),

@@ -9,6 +9,7 @@ import { DiffViewerModal } from '@/components/modals/DiffViewerModal';
 import { SemanticTriageModal } from '@/components/modals/SemanticTriageModal';
 import { CreateEventModal } from '@/components/modals/CreateEventModal';
 import { WhatIfModal } from '@/components/modals/WhatIfModal';
+import { WeeklyOnboardingModal } from '@/components/modals/WeeklyOnboardingModal';
 import { FrictionFeedbackPopover } from '@/components/calendar/FrictionFeedbackPopover';
 import { useScheduleStore } from '@/lib/store/scheduleStore';
 import { RefreshCw, CloudSun, ShieldCheck, Clock } from 'lucide-react';
@@ -100,6 +101,7 @@ export default function CalendarPage() {
       <SemanticTriageModal />
       <CreateEventModal />
       <WhatIfModal />
+      <WeeklyOnboardingModal />
       <FrictionFeedbackPopover />
     </main>
   );

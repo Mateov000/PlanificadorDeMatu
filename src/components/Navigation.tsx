@@ -4,12 +4,19 @@ import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useScheduleStore } from '@/lib/store/scheduleStore';
-import { Flame, Calendar, Compass, Sliders, Download, PlusCircle, FlaskConical, Plus } from 'lucide-react';
+import { Flame, Calendar, Compass, Sliders, Download, PlusCircle, FlaskConical, Plus, Award, CalendarCheck } from 'lucide-react';
 import { generateIcsCalendar } from '@/lib/calendar/icsGenerator';
 
 export const Navigation: React.FC = () => {
   const pathname = usePathname();
-  const { setPanicModalOpen, setTriageModalOpen, setWhatIfModalOpen, setCreateModalOpen, events } = useScheduleStore();
+  const {
+    setPanicModalOpen,
+    setTriageModalOpen,
+    setWhatIfModalOpen,
+    setCreateModalOpen,
+    setOnboardingModalOpen,
+    events,
+  } = useScheduleStore();
 
   const handleExportIcs = () => {
     const icsContent = generateIcsCalendar(events, 'PlanificadorDeMatu');
@@ -94,10 +101,34 @@ export const Navigation: React.FC = () => {
           <Sliders size={15} />
           <span>Perillas &amp; Reglas</span>
         </Link>
+        <Link
+          href="/retrospective"
+          className={`btn ${pathname === '/retrospective' ? 'btn-primary' : 'btn-secondary'}`}
+          style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}
+        >
+          <Award size={15} />
+          <span>Retrospectiva</span>
+        </Link>
       </nav>
 
       {/* Botones de Acción */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+        <button
+          onClick={() => setOnboardingModalOpen(true)}
+          className="btn btn-secondary"
+          style={{
+            padding: '0.5rem 0.85rem',
+            fontSize: '0.825rem',
+            borderColor: 'rgba(37, 99, 235, 0.4)',
+            color: '#93c5fd',
+            background: 'rgba(37, 99, 235, 0.12)',
+          }}
+          title="Asistente guiado de planificación dominical de 4 pasos"
+        >
+          <CalendarCheck size={15} color="#60a5fa" />
+          <span>Planificar Domingo</span>
+        </button>
+
         <button
           onClick={() => setCreateModalOpen(true)}
           className="btn btn-secondary"
