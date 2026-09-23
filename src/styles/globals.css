@@ -177,12 +177,14 @@ body {
   border: 1px solid rgba(236, 72, 153, 0.3);
 }
 
-/* Modal Overlay */
-.modal-overlay {
+/* Modal Overlay & Backdrop */
+.modal-overlay,
+.modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(3, 7, 18, 0.82);
-  backdrop-filter: blur(8px);
+  background: rgba(3, 7, 18, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -191,7 +193,8 @@ body {
   animation: fadeIn 0.2s ease-out;
 }
 
-.modal-content {
+.modal-content,
+.modal-card {
   background: #0f172a;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: var(--radius-lg);
@@ -201,6 +204,7 @@ body {
   overflow-y: auto;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
   animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  padding: 1.75rem;
 }
 
 @keyframes fadeIn {

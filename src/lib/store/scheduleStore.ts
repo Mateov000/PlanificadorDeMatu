@@ -16,7 +16,93 @@ export const initialCategories: Category[] = [
   { id: 'cat-gym', name: 'Gimnasio / Deporte', slug: 'gimnasio', color: '#10b981', archetype: 'elastic_routine', icon: 'dumbbell' },
   { id: 'cat-social', name: 'Vida Social y Amigos', slug: 'social', color: '#ec4899', archetype: 'social_flexible', icon: 'beer' },
   { id: 'cat-logistics', name: 'Logística / Cocina', slug: 'logistica', color: '#8b5cf6', archetype: 'logistics_buffer', icon: 'utensils' },
+  { id: 'cat-sleep', name: 'Sueño Biológico Garantizado', slug: 'sueno', color: '#818cf8', archetype: 'locked_pillar', icon: 'moon' },
 ];
+
+/**
+ * Sintetiza proactivamente los bloques de descanso biológico de 8h para cada día de la semana.
+ * Si hay un evento nocturno (cierre de Ferro o salida), ancla el sueño a la llegada a casa.
+ * Si no, proyecta el sueño nocturno regular (23:30 - 07:30).
+ */
+export function synthesizeBiologicalSleepEvents(
+  events: Event[],
+  params: ConstraintParams,
+  travelMatrix: any,
+  weekStartDate: Date = new Date()
+): Event[] {
+  const monday = new Date(weekStartDate);
+  const dayOfWeek = (monday.getDay() + 6) % 7;
+  monday.setDate(monday.getDate() - dayOfWeek);
+  monday.setHours(0, 0, 0, 0);
+
+  const sleepEvents: Event[] = [];
+  const targetSleepMins = params.targetSleepMinutes || 480;
+
+  for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
+    const dayDate = new Date(monday);
+    dayDate.setDate(monday.getDate() + dayOffset);
+
+    // Buscar si hay eventos nocturnos / disruptores que finalicen tarde en este día
+    const nightDisruptors = events.filter((ev) => {
+      if (!ev.startTime || !ev.endTime) return false;
+      const s = new Date(ev.startTime);
+      const e = new Date(ev.endTime);
+      const isSameDay = s.getDate() === dayDate.getDate() && s.getMonth() === dayDate.getMonth();
+      const isLateEnding = e.getHours() >= 22 || (e.getHours() < 7 && e.getDate() !== s.getDate());
+      return isSameDay && (isLateEnding || ev.isScheduleDisruptor);
+    });
+
+    if (nightDisruptors.length > 0) {
+      nightDisruptors.sort((a, b) => new Date(b.endTime!).getTime() - new Date(a.endTime!).getTime());
+      const latest = nightDisruptors[0];
+      const endTime = new Date(latest.endTime!);
+      const travelMins = travelMatrix.getTravelMinutes(latest.location || 'Casa', 'Casa');
+
+      // Anclaje flotante de llegada
+      const sleepStart = new Date(endTime.getTime() + travelMins * 60 * 1000);
+      const sleepEnd = new Date(sleepStart.getTime() + targetSleepMins * 60 * 1000);
+
+      sleepEvents.push({
+        id: `sleep-bio-${dayOffset}`,
+        categoryId: 'cat-sleep',
+        title: `Sueño Biológico Garantizado (${(targetSleepMins / 60).toFixed(0)}h)`,
+        startTime: sleepStart,
+        endTime: sleepEnd,
+        durationMinutes: targetSleepMins,
+        isLocked: true,
+        isSensitive: true,
+        displayAlias: 'Descanso Personal',
+        location: 'Casa',
+        cognitiveLoad: 0,
+        physicalLoad: 0,
+        energyDrain: 'low',
+      });
+    } else {
+      // Noche regular sin disrupción: 23:30 - 07:30
+      const sleepStart = new Date(dayDate);
+      sleepStart.setHours(23, 30, 0, 0);
+      const sleepEnd = new Date(sleepStart.getTime() + targetSleepMins * 60 * 1000);
+
+      sleepEvents.push({
+        id: `sleep-bio-${dayOffset}`,
+        categoryId: 'cat-sleep',
+        title: `Sueño Nocturno Reparador (${(targetSleepMins / 60).toFixed(0)}h)`,
+        startTime: sleepStart,
+        endTime: sleepEnd,
+        durationMinutes: targetSleepMins,
+        isLocked: true,
+        isSensitive: true,
+        displayAlias: 'Descanso Personal',
+        location: 'Casa',
+        cognitiveLoad: 0,
+        physicalLoad: 0,
+        energyDrain: 'low',
+      });
+    }
+  }
+
+  return sleepEvents;
+}
 
 // Datos de prueba ilustrativos para poblar el calendario en el primer arranque
 const now = new Date();
@@ -24,7 +110,7 @@ const todayYear = now.getFullYear();
 const todayMonth = now.getMonth();
 const todayDate = now.getDate();
 
-export const initialEvents: Event[] = [
+const defaultPillars: Event[] = [
   {
     id: 'evt-work-1',
     categoryId: 'cat-work',
@@ -98,6 +184,15 @@ export const initialEvents: Event[] = [
   },
 ];
 
+const initialSleepBlocks = synthesizeBiologicalSleepEvents(
+  defaultPillars,
+  defaultConstraintParams,
+  createTravelMatrixLookup(),
+  now
+);
+
+export const initialEvents: Event[] = [...defaultPillars, ...initialSleepBlocks];
+
 interface ScheduleStore {
   events: Event[];
   proposedSchedule: Event[] | null;
@@ -114,6 +209,8 @@ interface ScheduleStore {
   isWhatIfModalOpen: boolean;
   isOnboardingModalOpen: boolean;
   frictionFeedback: { eventId: string; eventTitle: string; x: number; y: number } | null;
+  selectedEventToEdit: Event | null;
+  isEditModalOpen: boolean;
 
   // Acciones
   addEvent: (event: Event) => void;
@@ -130,6 +227,8 @@ interface ScheduleStore {
   setWhatIfModalOpen: (open: boolean) => void;
   setOnboardingModalOpen: (open: boolean) => void;
   setFrictionFeedback: (feedback: { eventId: string; eventTitle: string; x: number; y: number } | null) => void;
+  openEditModal: (event: Event) => void;
+  closeEditModal: () => void;
 
   // Métodos del Solver CSP
   recalculateSchedule: () => void;
@@ -155,12 +254,16 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
   isWhatIfModalOpen: false,
   isOnboardingModalOpen: false,
   frictionFeedback: null,
+  selectedEventToEdit: null,
+  isEditModalOpen: false,
 
   setCreateModalOpen: (open, times) =>
     set({ isCreateModalOpen: open, createModalInitialTimes: times || null }),
   setWhatIfModalOpen: (open) => set({ isWhatIfModalOpen: open }),
   setOnboardingModalOpen: (open) => set({ isOnboardingModalOpen: open }),
   setFrictionFeedback: (feedback) => set({ frictionFeedback: feedback }),
+  openEditModal: (event) => set({ selectedEventToEdit: event, isEditModalOpen: true }),
+  closeEditModal: () => set({ selectedEventToEdit: null, isEditModalOpen: false }),
 
   addEvent: (event) => set((state) => ({ events: [...state.events, event] })),
 
@@ -196,17 +299,24 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
 
   recalculateSchedule: () => {
     const { events, params, metaSliders, weather } = get();
+    const travelMatrix = createTravelMatrixLookup();
+
+    // 1. Filtrar eventos de sueño previamente generados para recalcularlos según los turnos y descansos actuales
+    const nonSleepEvents = events.filter((e) => !e.id.startsWith('sleep-bio-'));
+    const freshSleepBlocks = synthesizeBiologicalSleepEvents(nonSleepEvents, params, travelMatrix);
+    const candidateEvents = [...nonSleepEvents, ...freshSleepBlocks];
+
     const context: ConstraintContext = {
-      candidateEvents: events,
+      candidateEvents,
       originalSchedule: events,
       params,
-      travelMatrix: createTravelMatrixLookup(),
+      travelMatrix,
       weather,
       currentTime: new Date(),
       metaSliders,
     };
 
-    const result = solveSchedule(events, context);
+    const result = solveSchedule(candidateEvents, context);
     const diff = calculateScheduleDiff(events, result.schedule, result.executionTimeMs, 'RECALCULATE');
 
     if (diff.hasChanges) {
@@ -215,6 +325,8 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
         activeDiff: diff,
         isDiffModalOpen: true,
       });
+    } else {
+      set({ events: result.schedule });
     }
   },
 

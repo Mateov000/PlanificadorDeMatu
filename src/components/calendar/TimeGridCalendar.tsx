@@ -21,6 +21,7 @@ export const TimeGridCalendar: React.FC = () => {
     updateEvent,
     setFrictionFeedback,
     setCreateModalOpen,
+    openEditModal,
   } = useScheduleStore();
 
   // Generar los 7 días de la semana actual partiendo del lunes
@@ -208,6 +209,7 @@ export const TimeGridCalendar: React.FC = () => {
                     topPx={topPx}
                     heightPx={heightPx}
                     color={color}
+                    onClick={() => openEditModal(ev)}
                     onDragStart={(e) => {
                       e.dataTransfer.setData('text/plain', ev.id);
                       e.dataTransfer.effectAllowed = 'move';
