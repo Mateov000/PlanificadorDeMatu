@@ -83,6 +83,14 @@ export function splitFloatingGoal(event: Event): Event[] {
   return blocks;
 }
 
+function getMondayOfWeek(d: Date): Date {
+  const date = new Date(d);
+  const day = (date.getDay() + 6) % 7;
+  date.setDate(date.getDate() - day);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
 /**
  * Motor Central de Auto-Scheduling (Constraint Solver Determinista)
  * Ejecuta Fase 1 (Hard Constraints AC-3) y Fase 2 (Scoring Soft Constraints)
@@ -96,8 +104,11 @@ export function solveSchedule(
   const hardRules = constraintRegistry.getHardRules();
   const softRules = constraintRegistry.getSoftRules();
 
+  // Normalizar inicio de semana al Lunes 00:00 para alinear con la cuadrícula de 7 días
+  const mondayDate = getMondayOfWeek(weekStartDate);
+
   // 1. Inicializar slots discretos de la semana
-  const weekSlots = initializeWeekTimeSlots(weekStartDate);
+  const weekSlots = initializeWeekTimeSlots(mondayDate);
 
   // 2. Separar eventos fijos (Hard Pillars o ya asignados inamovibles) de los flotantes
   const fixedEvents: Event[] = [];
@@ -109,7 +120,7 @@ export function solveSchedule(
     if (ev.isLocked || (evStart && evStart < context.currentTime)) {
       fixedEvents.push(ev);
       if (evStart && ev.durationMinutes) {
-        const slotIdx = dateToSlotIndex(evStart, weekStartDate);
+        const slotIdx = dateToSlotIndex(evStart, mondayDate);
         const needed = Math.ceil(ev.durationMinutes / 15);
         occupySlotRange(weekSlots, slotIdx, needed, ev.id);
       }
@@ -146,7 +157,7 @@ export function solveSchedule(
     for (const slotIdx of allowedSlots) {
       if (!isSlotRangeFree(weekSlots, slotIdx, neededSlots)) continue;
 
-      const candStart = slotIndexToDate(slotIdx, weekStartDate);
+      const candStart = slotIndexToDate(slotIdx, mondayDate);
       const candEnd = new Date(candStart.getTime() + event.durationMinutes * 60 * 1000);
 
       const candidateEvent: Event = {
@@ -180,7 +191,7 @@ export function solveSchedule(
     }
 
     if (bestSlotIdx !== null) {
-      const assignedStart = slotIndexToDate(bestSlotIdx, weekStartDate);
+      const assignedStart = slotIndexToDate(bestSlotIdx, mondayDate);
       const assignedEnd = new Date(assignedStart.getTime() + event.durationMinutes * 60 * 1000);
 
       const assignedEvent: Event = {

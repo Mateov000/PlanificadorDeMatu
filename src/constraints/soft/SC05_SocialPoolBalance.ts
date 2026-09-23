@@ -18,7 +18,12 @@ export const sc05_socialPoolBalanceRule: SoftConstraintRule = {
     const { params } = context;
     const targetHours = params.weeklySocialTargetHours ?? 6.0;
 
-    const socialEvents = candidate.filter((e) => e.category?.archetype === 'social_flexible');
+    const socialEvents = candidate.filter(
+      (e) =>
+        e.category?.archetype === 'social_flexible' ||
+        e.categoryId === 'cat-social' ||
+        e.categoryId?.includes('social')
+    );
     const totalSocialMinutes = socialEvents.reduce((acc, e) => acc + e.durationMinutes, 0);
     const totalSocialHours = totalSocialMinutes / 60;
 

@@ -31,6 +31,9 @@ export const hc03_sleepAnchorRule: HardConstraintRule = {
 
       const hourFraction = end.getHours() + end.getMinutes() / 60;
       // Es actividad nocturna si termina después del umbral o en la madrugada (< 6:00 AM) o tiene el flag disruptor
+      // Los bloques de sueño biológico no son disrupciones
+      if (event.categoryId === 'cat-sleep' || event.id.startsWith('sleep-')) continue;
+
       const isNightDisruption =
         event.isScheduleDisruptor || hourFraction >= nightThresholdHour || hourFraction < 6.0;
 
@@ -44,6 +47,9 @@ export const hc03_sleepAnchorRule: HardConstraintRule = {
       // Verificar que ningún otro evento comience antes de terminar la ventana de sueño
       for (const other of timedEvents) {
         if (other.id === event.id) continue;
+        // Los bloques de descanso/sueño son la propia protección biológica, no interrupciones
+        if (other.categoryId === 'cat-sleep' || other.id.startsWith('sleep-')) continue;
+
         const otherStart = parseDate(other.startTime);
         const otherEnd = parseDate(other.endTime);
         if (!otherStart || !otherEnd) continue;

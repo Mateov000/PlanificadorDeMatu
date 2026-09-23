@@ -7,6 +7,7 @@ import { defaultConstraintParams, createTravelMatrixLookup } from '@/constraints
 import { ConstraintContext } from '@/constraints/contracts';
 import { solveSchedule, cascadeEvict } from '@/solver/core/scheduler';
 import { calculateScheduleDiff } from '@/solver/explainability/diffCalculator';
+import { constraintRegistry } from '@/constraints/registry';
 
 // Categorías nativas iniciales
 export const initialCategories: Category[] = [
@@ -19,10 +20,112 @@ export const initialCategories: Category[] = [
   { id: 'cat-sleep', name: 'Sueño Biológico Garantizado', slug: 'sueno', color: '#818cf8', archetype: 'locked_pillar', icon: 'moon' },
 ];
 
+export interface CustomConstraint {
+  id: string;
+  name: string;
+  description: string;
+  type: 'hard' | 'soft';
+  variable: string;
+  operator: '<' | '>' | '<=' | '>=' | '===' | '!=';
+  threshold: number | string;
+  weight?: number;
+  enabled: boolean;
+  createdAt?: string;
+}
+
+export function registerCustomConstraintInEngine(c: CustomConstraint) {
+  if (c.type === 'hard') {
+    constraintRegistry.registerHardRule({
+      id: c.id,
+      name: c.name,
+      description: c.description || `Restricción personalizada: ${c.variable} ${c.operator} ${c.threshold}`,
+      enabled: c.enabled,
+      validate: (candidate: Event[], _context: ConstraintContext) => {
+        for (const ev of candidate) {
+          if (!ev.startTime) continue;
+          let val: any = undefined;
+          if (c.variable === 'cognitiveLoad') val = ev.cognitiveLoad;
+          else if (c.variable === 'durationMinutes') val = ev.durationMinutes;
+          else if (c.variable === 'recoveryDaysNeeded') val = ev.recoveryDaysNeeded;
+          else if (c.variable === 'estimatedCostArs') val = ev.estimatedCostArs;
+          else if (c.variable === 'hourOfDay') {
+            const st = typeof ev.startTime === 'string' ? new Date(ev.startTime) : ev.startTime;
+            val = st.getHours() + st.getMinutes() / 60;
+          } else if (c.variable === 'location') val = ev.location;
+          else if (c.variable === 'category') val = ev.categoryId;
+
+          if (val !== undefined) {
+            const thresh = typeof val === 'number' ? Number(c.threshold) : String(c.threshold);
+            let violates = false;
+            switch (c.operator) {
+              case '<': violates = !(val < thresh); break;
+              case '>': violates = !(val > thresh); break;
+              case '<=': violates = !(val <= thresh); break;
+              case '>=': violates = !(val >= thresh); break;
+              case '===': violates = !(val === thresh); break;
+              case '!=': violates = !(val !== thresh); break;
+            }
+            if (violates) {
+              return {
+                satisfied: false,
+                errorCode: `CUSTOM_${c.id}`,
+                reason: `Violación de regla personalizada "${c.name}": ${ev.title} (${c.variable} = ${val}) no cumple con ${c.operator} ${c.threshold}.`,
+                violatingEventIds: [ev.id],
+              };
+            }
+          }
+        }
+        return { satisfied: true };
+      },
+    });
+  } else {
+    constraintRegistry.registerSoftRule({
+      id: c.id,
+      name: c.name,
+      description: c.description || `Preferencia personalizada: ${c.variable} ${c.operator} ${c.threshold}`,
+      category: 'academic',
+      defaultWeight: c.weight || 1.0,
+      enabled: c.enabled,
+      evaluate: (candidate: Event[], _context: ConstraintContext) => {
+        let violations = 0;
+        let total = 0;
+        for (const ev of candidate) {
+          if (!ev.startTime) continue;
+          total++;
+          let val: any = undefined;
+          if (c.variable === 'cognitiveLoad') val = ev.cognitiveLoad;
+          else if (c.variable === 'durationMinutes') val = ev.durationMinutes;
+          else if (c.variable === 'recoveryDaysNeeded') val = ev.recoveryDaysNeeded;
+          else if (c.variable === 'estimatedCostArs') val = ev.estimatedCostArs;
+          else if (c.variable === 'hourOfDay') {
+            const st = typeof ev.startTime === 'string' ? new Date(ev.startTime) : ev.startTime;
+            val = st.getHours() + st.getMinutes() / 60;
+          } else if (c.variable === 'location') val = ev.location;
+
+          if (val !== undefined) {
+            const thresh = typeof val === 'number' ? Number(c.threshold) : String(c.threshold);
+            let violates = false;
+            switch (c.operator) {
+              case '<': violates = !(val < thresh); break;
+              case '>': violates = !(val > thresh); break;
+              case '<=': violates = !(val <= thresh); break;
+              case '>=': violates = !(val >= thresh); break;
+              case '===': violates = !(val === thresh); break;
+              case '!=': violates = !(val !== thresh); break;
+            }
+            if (violates) violations++;
+          }
+        }
+        return total > 0 ? Math.min(1.0, violations / total) : 0;
+      },
+    });
+  }
+}
+
 /**
  * Sintetiza proactivamente los bloques de descanso biológico de 8h para cada día de la semana.
  * Si hay un evento nocturno (cierre de Ferro o salida), ancla el sueño a la llegada a casa.
- * Si no, proyecta el sueño nocturno regular (23:30 - 07:30).
+ * Si no, proyecta el sueño nocturno regular (23:00 - 07:00).
  */
 export function synthesizeBiologicalSleepEvents(
   events: Event[],
@@ -104,19 +207,25 @@ export function synthesizeBiologicalSleepEvents(
   return sleepEvents;
 }
 
-// Datos de prueba ilustrativos para poblar el calendario en el primer arranque
+// Plantilla integral de eventos representativos de la vida de Matu
 const now = new Date();
-const todayYear = now.getFullYear();
-const todayMonth = now.getMonth();
-const todayDate = now.getDate();
+const distanceToMonday = (now.getDay() + 6) % 7;
+const currentMonday = new Date(now);
+currentMonday.setDate(now.getDate() - distanceToMonday);
+currentMonday.setHours(0, 0, 0, 0);
+
+const monYear = currentMonday.getFullYear();
+const monMonth = currentMonday.getMonth();
+const monDate = currentMonday.getDate();
 
 const defaultPillars: Event[] = [
+  // Turno Ferro (Viernes 18:00 - Sábado 01:00 AM)
   {
     id: 'evt-work-1',
     categoryId: 'cat-work',
     title: 'Turno Sucursal Ferro',
-    startTime: new Date(todayYear, todayMonth, todayDate, 18, 0),
-    endTime: new Date(todayYear, todayMonth, todayDate + 1, 1, 0),
+    startTime: new Date(monYear, monMonth, monDate + 4, 18, 0),
+    endTime: new Date(monYear, monMonth, monDate + 5, 1, 0),
     durationMinutes: 420,
     isLocked: true,
     isScheduleDisruptor: true,
@@ -125,27 +234,57 @@ const defaultPillars: Event[] = [
     energyDrain: 'high',
     location: 'Ferro',
   },
+  // Turno Casino (Sábado 14:00 - 22:00)
+  {
+    id: 'evt-work-2',
+    categoryId: 'cat-work',
+    title: 'Turno Sucursal Casino',
+    startTime: new Date(monYear, monMonth, monDate + 5, 14, 0),
+    endTime: new Date(monYear, monMonth, monDate + 5, 22, 0),
+    durationMinutes: 480,
+    isLocked: true,
+    cognitiveLoad: 1,
+    physicalLoad: 2,
+    energyDrain: 'high',
+    location: 'Rambla Casino',
+  },
+  // Cursada AEEC (Jueves 14:00 - 16:00, Tolerancia 0)
   {
     id: 'evt-class-1',
     categoryId: 'cat-study-fixed',
     title: 'Cursada AEEC (Asistencia Estricta)',
-    startTime: new Date(todayYear, todayMonth, todayDate + 1, 14, 0),
-    endTime: new Date(todayYear, todayMonth, todayDate + 1, 16, 0),
+    startTime: new Date(monYear, monMonth, monDate + 3, 14, 0),
+    endTime: new Date(monYear, monMonth, monDate + 3, 16, 0),
     durationMinutes: 120,
     isLocked: true,
-    maxLatenessMinutes: 0, // Tolerancia 0
+    maxLatenessMinutes: 0,
     cognitiveLoad: 2,
     physicalLoad: 0,
     energyDrain: 'normal',
     location: 'Facultad',
   },
+  // Cursada Redes (Miércoles 16:00 - 19:00)
+  {
+    id: 'evt-class-2',
+    categoryId: 'cat-study-fixed',
+    title: 'Cursada Redes de Computadoras',
+    startTime: new Date(monYear, monMonth, monDate + 2, 16, 0),
+    endTime: new Date(monYear, monMonth, monDate + 2, 19, 0),
+    durationMinutes: 180,
+    isLocked: true,
+    cognitiveLoad: 3,
+    physicalLoad: 0,
+    energyDrain: 'high',
+    location: 'Facultad',
+  },
+  // Estudio Redes (Floating Goal, 120 min)
   {
     id: 'evt-study-redes',
     categoryId: 'cat-study-float',
     title: 'Estudio Redes de Computadoras',
     durationMinutes: 120,
     isFloating: true,
-    deadline: new Date(todayYear, todayMonth, todayDate + 3, 20, 0),
+    deadline: new Date(monYear, monMonth, monDate + 4, 18, 0),
     cognitiveLoad: 3,
     physicalLoad: 0,
     energyDrain: 'normal',
@@ -153,13 +292,14 @@ const defaultPillars: Event[] = [
     minBlockMinutes: 90,
     maxBlockMinutes: 180,
   },
+  // Estudio CalSoft (Floating Goal, 90 min)
   {
     id: 'evt-study-calsoft',
     categoryId: 'cat-study-float',
     title: 'Estudio Calidad de Software',
     durationMinutes: 90,
     isFloating: true,
-    deadline: new Date(todayYear, todayMonth, todayDate + 2, 19, 0),
+    deadline: new Date(monYear, monMonth, monDate + 3, 13, 0),
     cognitiveLoad: 2,
     physicalLoad: 0,
     energyDrain: 'normal',
@@ -167,12 +307,13 @@ const defaultPillars: Event[] = [
     minBlockMinutes: 90,
     maxBlockMinutes: 150,
   },
+  // Gym Torso (Martes 15:30 - 16:45)
   {
     id: 'evt-gym-torso',
     categoryId: 'cat-gym',
     title: 'Gimnasio (Sesión Torso)',
-    startTime: new Date(todayYear, todayMonth, todayDate, 15, 0),
-    endTime: new Date(todayYear, todayMonth, todayDate, 16, 15),
+    startTime: new Date(monYear, monMonth, monDate + 1, 15, 30),
+    endTime: new Date(monYear, monMonth, monDate + 1, 16, 45),
     durationMinutes: 75,
     isFloating: false,
     splitVariant: 'torso',
@@ -182,16 +323,75 @@ const defaultPillars: Event[] = [
     energyDrain: 'high',
     location: 'Gimnasio',
   },
+  // Gym Piernas (Rutina Elástica Flotante con Lag HC-06 >= 2 días)
+  {
+    id: 'evt-gym-piernas',
+    categoryId: 'cat-gym',
+    title: 'Gimnasio (Sesión Piernas)',
+    durationMinutes: 75,
+    isFloating: true,
+    splitVariant: 'piernas',
+    recoveryDaysNeeded: 2,
+    cognitiveLoad: 0,
+    physicalLoad: 3,
+    energyDrain: 'high',
+    location: 'Gimnasio',
+    preferredTimeWindow: { start: '16:30', end: '19:30' },
+  },
+  // Salida Social: Birra con Juancito
+  {
+    id: 'evt-social-juancito',
+    categoryId: 'cat-social',
+    title: 'Birra con Juancito',
+    durationMinutes: 120,
+    isFloating: true,
+    cognitiveLoad: 0,
+    physicalLoad: 0,
+    energyDrain: 'low',
+    location: 'Cervecería Güemes',
+    preferredTimeWindow: { start: '19:30', end: '22:15' },
+    estimatedCostArs: 14000,
+  },
+  // Salida Social: Encuentro Costero al Aire Libre (Playa Varese / Rambla)
+  {
+    id: 'evt-social-costa',
+    categoryId: 'cat-social',
+    title: 'Encuentro Costero al Aire Libre',
+    durationMinutes: 150,
+    isFloating: true,
+    cognitiveLoad: 0,
+    physicalLoad: 0,
+    energyDrain: 'low',
+    location: 'Playa Varese / Costa',
+    preferredTimeWindow: { start: '14:30', end: '18:30' },
+    estimatedCostArs: 6000,
+  },
 ];
 
 const initialSleepBlocks = synthesizeBiologicalSleepEvents(
   defaultPillars,
   defaultConstraintParams,
   createTravelMatrixLookup(),
-  now
+  currentMonday
 );
 
-export const initialEvents: Event[] = [...defaultPillars, ...initialSleepBlocks];
+const initialRawEvents: Event[] = [...defaultPillars, ...initialSleepBlocks];
+
+// Pre-solución limpia para que al abrir la app ya se visualicen de forma armónica todos los bloques
+const preSolved = solveSchedule(
+  initialRawEvents,
+  {
+    candidateEvents: initialRawEvents,
+    originalSchedule: initialRawEvents,
+    params: defaultConstraintParams,
+    travelMatrix: createTravelMatrixLookup(),
+    currentTime: new Date(monYear, monMonth, monDate, 0, 0),
+    metaSliders: { academic: 1.0, social: 1.0, wellness: 1.0 },
+  },
+  currentMonday
+);
+
+export const initialEvents: Event[] = preSolved.schedule.length > 0 ? preSolved.schedule : initialRawEvents;
 
 interface ScheduleStore {
   events: Event[];
@@ -200,6 +400,7 @@ interface ScheduleStore {
   params: ConstraintParams;
   metaSliders: { academic: number; social: number; wellness: number };
   weather: WeatherForecast[];
+  customConstraints: CustomConstraint[];
   activeDiff: ScheduleDiff | null;
   isDiffModalOpen: boolean;
   isPanicModalOpen: boolean;
@@ -219,6 +420,9 @@ interface ScheduleStore {
   setMetaSliders: (sliders: Partial<{ academic: number; social: number; wellness: number }>) => void;
   setParams: (params: Partial<ConstraintParams>) => void;
   setWeather: (forecasts: WeatherForecast[]) => void;
+  addCustomConstraint: (constraint: CustomConstraint) => void;
+  removeCustomConstraint: (id: string) => void;
+  toggleCustomConstraint: (id: string) => void;
   openDiffModal: (diff: ScheduleDiff) => void;
   closeDiffModal: () => void;
   setPanicModalOpen: (open: boolean) => void;
@@ -245,6 +449,7 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
   params: defaultConstraintParams,
   metaSliders: { academic: 1.0, social: 1.0, wellness: 1.0 },
   weather: [],
+  customConstraints: [],
   activeDiff: null,
   isDiffModalOpen: false,
   isPanicModalOpen: false,
@@ -277,6 +482,35 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
       events: state.events.filter((e) => e.id !== id),
     })),
 
+  addCustomConstraint: (constraint: CustomConstraint) => {
+    registerCustomConstraintInEngine(constraint);
+    set((state) => ({
+      customConstraints: [...state.customConstraints, constraint],
+    }));
+    get().recalculateSchedule();
+  },
+
+  removeCustomConstraint: (id: string) => {
+    constraintRegistry.unregisterRule(id);
+    set((state) => ({
+      customConstraints: state.customConstraints.filter((c) => c.id !== id),
+    }));
+    get().recalculateSchedule();
+  },
+
+  toggleCustomConstraint: (id: string) => {
+    const constraint = get().customConstraints.find((c) => c.id === id);
+    if (!constraint) return;
+    const newEnabled = !constraint.enabled;
+    constraintRegistry.setRuleEnabled(id, newEnabled);
+    set((state) => ({
+      customConstraints: state.customConstraints.map((c) =>
+        c.id === id ? { ...c, enabled: newEnabled } : c
+      ),
+    }));
+    get().recalculateSchedule();
+  },
+
   setMetaSliders: (sliders) => {
     set((state) => ({
       metaSliders: { ...state.metaSliders, ...sliders },
@@ -284,12 +518,17 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
     get().recalculateSchedule();
   },
 
-  setParams: (newParams) =>
+  setParams: (newParams) => {
     set((state) => ({
       params: { ...state.params, ...newParams },
-    })),
+    }));
+    get().recalculateSchedule();
+  },
 
-  setWeather: (weather) => set({ weather }),
+  setWeather: (weather) => {
+    set({ weather });
+    get().recalculateSchedule();
+  },
 
   openDiffModal: (diff) => set({ activeDiff: diff, isDiffModalOpen: true }),
   closeDiffModal: () => set({ activeDiff: null, isDiffModalOpen: false }),
@@ -301,9 +540,15 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
     const { events, params, metaSliders, weather } = get();
     const travelMatrix = createTravelMatrixLookup();
 
+    const nowTime = new Date();
+    const distanceToMon = (nowTime.getDay() + 6) % 7;
+    const weekMon = new Date(nowTime);
+    weekMon.setDate(nowTime.getDate() - distanceToMon);
+    weekMon.setHours(0, 0, 0, 0);
+
     // 1. Filtrar eventos de sueño previamente generados para recalcularlos según los turnos y descansos actuales
     const nonSleepEvents = events.filter((e) => !e.id.startsWith('sleep-bio-'));
-    const freshSleepBlocks = synthesizeBiologicalSleepEvents(nonSleepEvents, params, travelMatrix);
+    const freshSleepBlocks = synthesizeBiologicalSleepEvents(nonSleepEvents, params, travelMatrix, weekMon);
     const candidateEvents = [...nonSleepEvents, ...freshSleepBlocks];
 
     const context: ConstraintContext = {
@@ -312,22 +557,18 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
       params,
       travelMatrix,
       weather,
-      currentTime: new Date(),
+      currentTime: new Date(weekMon.getTime() - 1000), // Permitir optimizar la semana completa
       metaSliders,
     };
 
-    const result = solveSchedule(candidateEvents, context);
+    const result = solveSchedule(candidateEvents, context, weekMon);
     const diff = calculateScheduleDiff(events, result.schedule, result.executionTimeMs, 'RECALCULATE');
 
-    if (diff.hasChanges) {
-      set({
-        proposedSchedule: result.schedule,
-        activeDiff: diff,
-        isDiffModalOpen: true,
-      });
-    } else {
-      set({ events: result.schedule });
-    }
+    set({
+      events: result.schedule,
+      proposedSchedule: result.schedule,
+      activeDiff: diff,
+    });
   },
 
   triggerPanicEviction: (urgentPlan) => {

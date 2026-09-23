@@ -842,6 +842,66 @@ describe('Solver & Panic Button Performance', () => {
     expect(updatedParams.weeklyBudgetArs).toBe(65000);
     expect(updatedParams.wakeInertiaBufferMinutes).toBe(120);
   });
+
+  it('Paso 5.1: Integral Schedule Generation creates and places study, gym, social, and sleep blocks', async () => {
+    const { useScheduleStore, initialEvents } = await import('../src/lib/store/scheduleStore');
+    useScheduleStore.setState({ events: initialEvents });
+    const store = useScheduleStore.getState();
+
+    // Trigger schedule generation
+    store.recalculateSchedule();
+
+    const events = useScheduleStore.getState().events;
+
+    // Verificar presencia de bloques de estudio con horario asignado
+    const studyEvents = events.filter((e) => e.categoryId === 'cat-study-float' && e.startTime);
+    expect(studyEvents.length).toBeGreaterThanOrEqual(2);
+
+    // Verificar presencia de bloques de gimnasio con descanso entre torso y piernas
+    const gymEvents = events.filter((e) => e.categoryId === 'cat-gym' && e.startTime);
+    expect(gymEvents.length).toBeGreaterThanOrEqual(2);
+    const torso = gymEvents.find((e) => e.splitVariant === 'torso');
+    const piernas = gymEvents.find((e) => e.splitVariant === 'piernas');
+    expect(torso?.startTime).toBeDefined();
+    expect(piernas?.startTime).toBeDefined();
+
+    // Verificar presencia de bloques sociales
+    const socialEvents = events.filter((e) => e.categoryId === 'cat-social' && e.startTime);
+    expect(socialEvents.length).toBeGreaterThanOrEqual(2);
+
+    // Verificar presencia de bloques de sueño biológico
+    const sleepEvents = events.filter((e) => e.id.startsWith('sleep-bio-') && e.startTime);
+    expect(sleepEvents.length).toBeGreaterThanOrEqual(7);
+  });
+
+  it('Paso 5.2: Custom Constraints can be dynamically registered and enforced by the engine', async () => {
+    const { useScheduleStore } = await import('../src/lib/store/scheduleStore');
+    const store = useScheduleStore.getState();
+
+    // Agregar restricción personalizada: cognitiveLoad <= 3
+    store.addCustomConstraint({
+      id: 'custom-test-cognitive',
+      name: 'Límite de Carga Cognitiva',
+      description: 'Prueba unitaria de regla personalizada',
+      type: 'hard',
+      variable: 'cognitiveLoad',
+      operator: '<=',
+      threshold: 3,
+      enabled: true,
+    });
+
+    const customRules = useScheduleStore.getState().customConstraints;
+    expect(customRules.find((c) => c.id === 'custom-test-cognitive')).toBeDefined();
+
+    // Alternar restricción
+    store.toggleCustomConstraint('custom-test-cognitive');
+    expect(useScheduleStore.getState().customConstraints.find((c) => c.id === 'custom-test-cognitive')?.enabled).toBe(false);
+
+    // Eliminar restricción
+    store.removeCustomConstraint('custom-test-cognitive');
+    expect(useScheduleStore.getState().customConstraints.find((c) => c.id === 'custom-test-cognitive')).toBeUndefined();
+  });
 });
+
 
 

@@ -25,18 +25,19 @@ export const sc03_weatherArbitrageRule: SoftConstraintRule = {
 
     let penalty = 0;
     const outdoorEvents = candidate.filter(
-      (e) => e.location !== 'Casa' && e.category?.archetype === 'social_flexible' && e.startTime
+      (e) =>
+        e.location !== 'Casa' &&
+        (e.category?.archetype === 'social_flexible' ||
+          e.categoryId === 'cat-social' ||
+          e.categoryId?.includes('social')) &&
+        e.startTime
     );
     const studyEvents = candidate.filter(
       (e) => (e.location === 'Casa' || !e.location) && e.cognitiveLoad >= 2 && e.startTime && !e.isLocked
     );
 
-    // 1. Evaluar planes outdoor con mal clima (penalización severa)
-    for (const event of outdoorEvents) {
-      const start = parseDate(event.startTime);
-      if (!start) continue;
-
-      const forecast = weather.find((w) => {
+    const findForecast = (start: Date) => {
+      return weather.find((w) => {
         const fTime = new Date(w.timestamp);
         return (
           fTime.getFullYear() === start.getFullYear() &&
@@ -44,11 +45,25 @@ export const sc03_weatherArbitrageRule: SoftConstraintRule = {
           fTime.getDate() === start.getDate() &&
           fTime.getHours() === start.getHours()
         );
+      }) || weather.find((w) => {
+        const fTime = new Date(w.timestamp);
+        return Math.abs(fTime.getTime() - start.getTime()) < 2 * 3600 * 1000;
       });
+    };
+
+    // 1. Evaluar planes outdoor con mal clima (penalización severa)
+    for (const event of outdoorEvents) {
+      const start = parseDate(event.startTime);
+      if (!start) continue;
+
+      const forecast = findForecast(start);
 
       if (forecast) {
         if (forecast.isSoutheastStorm || forecast.comfortScore < 40) {
           penalty += 0.8;
+        } else if (forecast.comfortScore >= 70) {
+          // Clima costero excelente: bonificación (reduce penalización)
+          penalty = Math.max(0, penalty - 0.2);
         }
       }
     }
@@ -58,22 +73,16 @@ export const sc03_weatherArbitrageRule: SoftConstraintRule = {
       const start = parseDate(event.startTime);
       if (!start) continue;
 
-      const forecast = weather.find((w) => {
-        const fTime = new Date(w.timestamp);
-        return (
-          fTime.getFullYear() === start.getFullYear() &&
-          fTime.getMonth() === start.getMonth() &&
-          fTime.getDate() === start.getDate() &&
-          fTime.getHours() === start.getHours()
-        );
-      });
+      const forecast = findForecast(start);
 
       if (forecast) {
         if (forecast.comfortScore > 75) {
           // Penalizar estudiar adentro en momento de clima costero óptimo
           penalty += 0.4;
+        } else if (forecast.isSoutheastStorm || forecast.comfortScore < 40) {
+          // Temporal / frío marítimo: aprovechamiento perfecto para concentrarse adentro
+          penalty = Math.max(0, penalty - 0.2);
         }
-        // Si el confort es < 40 (temporal), penalty = 0 (aprovechamiento óptimo de encierro)
       }
     }
 

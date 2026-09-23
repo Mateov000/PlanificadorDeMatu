@@ -16,14 +16,20 @@ import { useScheduleStore } from '@/lib/store/scheduleStore';
 import { RefreshCw, CloudSun, ShieldCheck, Clock } from 'lucide-react';
 
 export default function CalendarPage() {
-  const { recalculateSchedule, setWeather } = useScheduleStore();
+  const { recalculateSchedule, setWeather, weather } = useScheduleStore();
+
+  const currentWeather = React.useMemo(() => {
+    if (!weather || weather.length === 0) return null;
+    const nowH = new Date().getHours();
+    return weather.find((w) => new Date(w.timestamp).getHours() === nowH) || weather[0];
+  }, [weather]);
 
   useEffect(() => {
     // Consultar clima de Mar del Plata al montar la app
     fetch('/api/weather')
       .then((res) => res.json())
       .then((data) => {
-        if (data.forecasts) {
+        if (data.forecasts && data.forecasts.length > 0) {
           setWeather(data.forecasts);
         }
       })
@@ -48,21 +54,44 @@ export default function CalendarPage() {
         <MetaSliders />
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-          {/* Chip de Estado Clima */}
-          <div
-            className="glass-panel"
-            style={{
-              padding: '0.65rem 1rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              fontSize: '0.825rem',
-              color: 'var(--text-secondary)',
-            }}
-          >
-            <CloudSun size={16} color="var(--accent-cyan)" />
-            <span>Microclima Mardel: Óptimo</span>
-          </div>
+          {/* Chip de Estado Clima Dinámico de Mar del Plata */}
+          {currentWeather ? (
+            <div
+              className="glass-panel"
+              style={{
+                padding: '0.65rem 1rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.55rem',
+                fontSize: '0.825rem',
+                color: currentWeather.isSoutheastStorm ? '#fca5a5' : 'var(--text-secondary)',
+                border: currentWeather.isSoutheastStorm ? '1px solid rgba(239, 68, 68, 0.4)' : undefined,
+                background: currentWeather.isSoutheastStorm ? 'rgba(239, 68, 68, 0.1)' : undefined,
+              }}
+              title={`Viento: ${currentWeather.windSpeedKmh} km/h (Ráfagas ${currentWeather.windGustsKmh} km/h). Confort costero: ${currentWeather.comfortScore}/100. ${currentWeather.isSoutheastStorm ? 'Alerta temporal SE activo: el solver prioriza estudio bajo techo.' : 'Condiciones favorables para salidas exteriores.'}`}
+            >
+              <CloudSun size={16} color={currentWeather.isSoutheastStorm ? '#ef4444' : 'var(--accent-cyan)'} />
+              <span>
+                Mardel: {currentWeather.temperatureC}°C | {currentWeather.windSpeedKmh} km/h
+                {currentWeather.isSoutheastStorm ? ' ⚠️ Temporal SE' : ` (Confort ${currentWeather.comfortScore})`}
+              </span>
+            </div>
+          ) : (
+            <div
+              className="glass-panel"
+              style={{
+                padding: '0.65rem 1rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                fontSize: '0.825rem',
+                color: 'var(--text-secondary)',
+              }}
+            >
+              <CloudSun size={16} color="var(--accent-cyan)" />
+              <span>Microclima Mardel: Conectando...</span>
+            </div>
+          )}
 
           {/* Chip de Garantía Biológica */}
           <div

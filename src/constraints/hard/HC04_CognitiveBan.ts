@@ -29,6 +29,9 @@ export const hc04_cognitiveBanRule: HardConstraintRule = {
     const timedEvents = candidate.filter((e) => e.startTime && e.endTime && !e.isAllDay);
 
     for (const event of timedEvents) {
+      // Los bloques de sueño no generan veto cognitivo
+      if (event.categoryId === 'cat-sleep' || event.id.startsWith('sleep-')) continue;
+
       const isHighDrain =
         event.isScheduleDisruptor ||
         event.energyDrain === 'high' ||

@@ -73,6 +73,11 @@ class ConstraintRegistry implements ConstraintRegistryContract {
     }
   }
 
+  unregisterRule(id: string): void {
+    this.hardRules = this.hardRules.filter((r) => r.id !== id);
+    this.softRules = this.softRules.filter((r) => r.id !== id);
+  }
+
   getHardRules(): HardConstraintRule[] {
     return this.hardRules.filter((r) => r.enabled);
   }
