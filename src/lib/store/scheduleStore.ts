@@ -207,12 +207,19 @@ export function synthesizeBiologicalSleepEvents(
   return sleepEvents;
 }
 
+// Función utilitaria para normalizar una fecha al Lunes 00:00:00 de su semana
+export function getMondayOf(d: Date): Date {
+  const date = new Date(d);
+  const day = date.getDay(); // 0 = Domingo, 1 = Lunes
+  const distanceToMonday = (day + 6) % 7;
+  date.setDate(date.getDate() - distanceToMonday);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
 // Plantilla integral de eventos representativos de la vida de Matu
 const now = new Date();
-const distanceToMonday = (now.getDay() + 6) % 7;
-const currentMonday = new Date(now);
-currentMonday.setDate(now.getDate() - distanceToMonday);
-currentMonday.setHours(0, 0, 0, 0);
+const currentMonday = getMondayOf(now);
 
 const monYear = currentMonday.getFullYear();
 const monMonth = currentMonday.getMonth();
@@ -397,6 +404,7 @@ interface ScheduleStore {
   events: Event[];
   proposedSchedule: Event[] | null;
   categories: Category[];
+  currentWeekStart: Date;
   params: ConstraintParams;
   metaSliders: { academic: number; social: number; wellness: number };
   weather: WeatherForecast[];
@@ -412,6 +420,13 @@ interface ScheduleStore {
   frictionFeedback: { eventId: string; eventTitle: string; x: number; y: number } | null;
   selectedEventToEdit: Event | null;
   isEditModalOpen: boolean;
+
+  // Navegación y Gestión de Semanas
+  goToNextWeek: () => void;
+  goToPrevWeek: () => void;
+  goToCurrentWeek: () => void;
+  setCurrentWeekStart: (date: Date) => void;
+  deleteCurrentWeekEvents: () => void;
 
   // Acciones
   addEvent: (event: Event) => void;
@@ -446,6 +461,7 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
   events: initialEvents,
   proposedSchedule: null,
   categories: initialCategories,
+  currentWeekStart: currentMonday,
   params: defaultConstraintParams,
   metaSliders: { academic: 1.0, social: 1.0, wellness: 1.0 },
   weather: [],
@@ -461,6 +477,52 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
   frictionFeedback: null,
   selectedEventToEdit: null,
   isEditModalOpen: false,
+
+  goToNextWeek: () => {
+    set((state) => {
+      const next = new Date(state.currentWeekStart);
+      next.setDate(next.getDate() + 7);
+      return { currentWeekStart: next };
+    });
+  },
+
+  goToPrevWeek: () => {
+    set((state) => {
+      const prev = new Date(state.currentWeekStart);
+      prev.setDate(prev.getDate() - 7);
+      return { currentWeekStart: prev };
+    });
+  },
+
+  goToCurrentWeek: () => {
+    set({ currentWeekStart: getMondayOf(new Date()) });
+  },
+
+  setCurrentWeekStart: (date) => {
+    set({ currentWeekStart: getMondayOf(date) });
+  },
+
+  deleteCurrentWeekEvents: () => {
+    const { currentWeekStart, events } = get();
+    const weekStartMs = currentWeekStart.getTime();
+    const weekEndMs = weekStartMs + 7 * 24 * 60 * 60 * 1000;
+
+    const remainingEvents = events.filter((ev) => {
+      if (!ev.startTime) {
+        if (ev.deadline) {
+          const d = new Date(ev.deadline).getTime();
+          if (d >= weekStartMs && d < weekEndMs) return false;
+        }
+        return false;
+      }
+      const s = new Date(ev.startTime).getTime();
+      const e = ev.endTime ? new Date(ev.endTime).getTime() : s + (ev.durationMinutes || 60) * 60 * 1000;
+      const intersects = s < weekEndMs && e > weekStartMs;
+      return !intersects;
+    });
+
+    set({ events: remainingEvents, proposedSchedule: null, activeDiff: null });
+  },
 
   setCreateModalOpen: (open, times) =>
     set({ isCreateModalOpen: open, createModalInitialTimes: times || null }),
@@ -537,23 +599,37 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
   setTriageModalOpen: (open) => set({ isTriageModalOpen: open }),
 
   recalculateSchedule: () => {
-    const { events, params, metaSliders, weather } = get();
+    const { events, params, metaSliders, weather, currentWeekStart } = get();
     const travelMatrix = createTravelMatrixLookup();
 
-    const nowTime = new Date();
-    const distanceToMon = (nowTime.getDay() + 6) % 7;
-    const weekMon = new Date(nowTime);
-    weekMon.setDate(nowTime.getDate() - distanceToMon);
+    const weekMon = new Date(currentWeekStart);
     weekMon.setHours(0, 0, 0, 0);
 
-    // 1. Filtrar eventos de sueño previamente generados para recalcularlos según los turnos y descansos actuales
-    const nonSleepEvents = events.filter((e) => !e.id.startsWith('sleep-bio-'));
+    const weekStartMs = weekMon.getTime();
+    const weekEndMs = weekStartMs + 7 * 24 * 60 * 60 * 1000;
+
+    // Preservar eventos que pertenezcan a otras semanas
+    const otherWeeksEvents = events.filter((e) => {
+      if (!e.startTime) return false;
+      const s = new Date(e.startTime).getTime();
+      return s < weekStartMs || s >= weekEndMs;
+    });
+
+    // Eventos de la semana en vista (o flotantes sin fecha fija)
+    const thisWeekEvents = events.filter((e) => {
+      if (!e.startTime) return true;
+      const s = new Date(e.startTime).getTime();
+      return s >= weekStartMs && s < weekEndMs;
+    });
+
+    // 1. Filtrar eventos de sueño previamente generados para esta semana
+    const nonSleepEvents = thisWeekEvents.filter((e) => !e.id.startsWith('sleep-bio-'));
     const freshSleepBlocks = synthesizeBiologicalSleepEvents(nonSleepEvents, params, travelMatrix, weekMon);
     const candidateEvents = [...nonSleepEvents, ...freshSleepBlocks];
 
     const context: ConstraintContext = {
       candidateEvents,
-      originalSchedule: events,
+      originalSchedule: thisWeekEvents,
       params,
       travelMatrix,
       weather,
@@ -562,10 +638,10 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
     };
 
     const result = solveSchedule(candidateEvents, context, weekMon);
-    const diff = calculateScheduleDiff(events, result.schedule, result.executionTimeMs, 'RECALCULATE');
+    const diff = calculateScheduleDiff(thisWeekEvents, result.schedule, result.executionTimeMs, 'RECALCULATE');
 
     set({
-      events: result.schedule,
+      events: [...otherWeeksEvents, ...result.schedule],
       proposedSchedule: result.schedule,
       activeDiff: diff,
     });

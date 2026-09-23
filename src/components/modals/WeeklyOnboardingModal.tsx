@@ -23,6 +23,7 @@ export const WeeklyOnboardingModal: React.FC = () => {
     addEvent,
     recalculateSchedule,
     weather,
+    currentWeekStart,
   } = useScheduleStore();
 
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
@@ -42,11 +43,8 @@ export const WeeklyOnboardingModal: React.FC = () => {
   if (!isOnboardingModalOpen) return null;
 
   const handleFinishOnboarding = () => {
-    // Generar eventos de turnos confirmados
-    const now = new Date();
-    const monday = new Date(now);
-    const dayOfWeek = (now.getDay() + 6) % 7;
-    monday.setDate(now.getDate() - dayOfWeek);
+    // Generar eventos de turnos confirmados para la semana en vista
+    const monday = new Date(currentWeekStart);
 
     for (const shift of shifts) {
       if (!shift.enabled) continue;

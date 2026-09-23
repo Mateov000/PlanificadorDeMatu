@@ -907,6 +907,85 @@ describe('Solver & Panic Button Performance', () => {
     store.removeCustomConstraint('custom-test-cognitive');
     expect(useScheduleStore.getState().customConstraints.find((c) => c.id === 'custom-test-cognitive')).toBeUndefined();
   });
+
+  it('Paso 5.3: Week navigation moves forwards and backwards across weeks and returns to current week', async () => {
+    const { useScheduleStore, getMondayOf } = await import('../src/lib/store/scheduleStore');
+    const store = useScheduleStore.getState();
+
+    // Resetear a semana actual
+    store.goToCurrentWeek();
+    const currentMon = getMondayOf(new Date());
+    expect(useScheduleStore.getState().currentWeekStart.toDateString()).toBe(currentMon.toDateString());
+
+    // Avanzar a la semana siguiente (+7 días)
+    store.goToNextWeek();
+    const nextMon = new Date(currentMon);
+    nextMon.setDate(nextMon.getDate() + 7);
+    expect(useScheduleStore.getState().currentWeekStart.toDateString()).toBe(nextMon.toDateString());
+
+    // Retroceder a la semana anterior (-7 días)
+    store.goToPrevWeek();
+    expect(useScheduleStore.getState().currentWeekStart.toDateString()).toBe(currentMon.toDateString());
+
+    // Retroceder otra semana
+    store.goToPrevWeek();
+    const prevMon = new Date(currentMon);
+    prevMon.setDate(prevMon.getDate() - 7);
+    expect(useScheduleStore.getState().currentWeekStart.toDateString()).toBe(prevMon.toDateString());
+
+    // Volver a semana actual
+    store.goToCurrentWeek();
+    expect(useScheduleStore.getState().currentWeekStart.toDateString()).toBe(currentMon.toDateString());
+  });
+
+  it('Paso 5.4: deleteCurrentWeekEvents empties only the currently viewed week while preserving events in other weeks', async () => {
+    const { useScheduleStore, getMondayOf } = await import('../src/lib/store/scheduleStore');
+    const store = useScheduleStore.getState();
+
+    store.goToCurrentWeek();
+    const currentMon = getMondayOf(new Date());
+
+    // Evento en la semana actual (Martes 10:00)
+    const thisWeekEvt = {
+      id: 'evt-this-week-test',
+      title: 'Evento Semana Actual',
+      startTime: new Date(currentMon.getFullYear(), currentMon.getMonth(), currentMon.getDate() + 1, 10, 0),
+      endTime: new Date(currentMon.getFullYear(), currentMon.getMonth(), currentMon.getDate() + 1, 11, 0),
+      durationMinutes: 60,
+      cognitiveLoad: 1,
+      physicalLoad: 0,
+      energyDrain: 'normal' as const,
+      location: 'Casa',
+    };
+
+    // Evento en la semana siguiente (+9 días, Miércoles de la otra semana)
+    const nextWeekEvt = {
+      id: 'evt-next-week-test',
+      title: 'Evento Semana Próxima',
+      startTime: new Date(currentMon.getFullYear(), currentMon.getMonth(), currentMon.getDate() + 9, 10, 0),
+      endTime: new Date(currentMon.getFullYear(), currentMon.getMonth(), currentMon.getDate() + 9, 11, 0),
+      durationMinutes: 60,
+      cognitiveLoad: 1,
+      physicalLoad: 0,
+      energyDrain: 'normal' as const,
+      location: 'Casa',
+    };
+
+    store.addEvent(thisWeekEvt);
+    store.addEvent(nextWeekEvt);
+
+    expect(useScheduleStore.getState().events.find((e) => e.id === 'evt-this-week-test')).toBeDefined();
+    expect(useScheduleStore.getState().events.find((e) => e.id === 'evt-next-week-test')).toBeDefined();
+
+    // Vaciar eventos de la semana actual
+    store.deleteCurrentWeekEvents();
+
+    const remaining = useScheduleStore.getState().events;
+    // El evento de esta semana debió ser eliminado
+    expect(remaining.find((e) => e.id === 'evt-this-week-test')).toBeUndefined();
+    // El evento de la otra semana debe permanecer intacto
+    expect(remaining.find((e) => e.id === 'evt-next-week-test')).toBeDefined();
+  });
 });
 
 
