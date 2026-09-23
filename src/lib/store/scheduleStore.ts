@@ -328,6 +328,7 @@ const defaultPillars: Event[] = [
     endTime: new Date(monYear, monMonth, monDate + 1, 16, 45),
     durationMinutes: 75,
     isFloating: false,
+    isLocked: true,
     splitVariant: 'torso',
     recoveryDaysNeeded: 2,
     cognitiveLoad: 0,
@@ -456,6 +457,16 @@ interface ScheduleStore {
   openEditModal: (event: Event) => void;
   closeEditModal: () => void;
 
+  // Control de proyección de sueño biológico
+  autoGenerateSleep: boolean;
+  setAutoGenerateSleep: (enabled: boolean) => void;
+  toggleAutoGenerateSleep: () => void;
+
+  // Modo "Llenar" tiempo disponible
+  fillAvailableTime: boolean;
+  setFillAvailableTime: (fill: boolean) => void;
+  toggleFillAvailableTime: () => void;
+
   // Métodos del Solver CSP
   recalculateSchedule: () => void;
   triggerPanicEviction: (urgentPlan: Event) => void;
@@ -485,6 +496,30 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
   frictionFeedback: null,
   selectedEventToEdit: null,
   isEditModalOpen: false,
+  autoGenerateSleep: true, // Proyectado por defecto: garantiza descanso biológico en la vista semanal
+  fillAvailableTime: false, // Desactivado por defecto: cuando se activa, llena los huecos proporcionalmente
+
+  setAutoGenerateSleep: (enabled: boolean) => {
+    set({ autoGenerateSleep: enabled });
+    get().recalculateSchedule();
+  },
+
+  toggleAutoGenerateSleep: () => {
+    const current = get().autoGenerateSleep;
+    set({ autoGenerateSleep: !current });
+    get().recalculateSchedule();
+  },
+
+  setFillAvailableTime: (fill: boolean) => {
+    set({ fillAvailableTime: fill });
+    get().recalculateSchedule();
+  },
+
+  toggleFillAvailableTime: () => {
+    const current = get().fillAvailableTime;
+    set({ fillAvailableTime: !current });
+    get().recalculateSchedule();
+  },
 
   goToNextWeek: () => {
     set((state) => {
@@ -646,7 +681,7 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
   setTriageModalOpen: (open) => set({ isTriageModalOpen: open }),
 
   recalculateSchedule: () => {
-    const { events, params, metaSliders, weather, currentWeekStart } = get();
+    const { events, params, metaSliders, weather, currentWeekStart, autoGenerateSleep, fillAvailableTime } = get();
     const travelMatrix = createTravelMatrixLookup();
 
     const weekMon = new Date(currentWeekStart);
@@ -655,36 +690,50 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
     const weekStartMs = weekMon.getTime();
     const weekEndMs = weekStartMs + 7 * 24 * 60 * 60 * 1000;
 
-    // Ventana biológica de la semana: desde el domingo previo 12:00 hs hasta el lunes siguiente 12:00 hs
-    const bioWindowStartMs = weekStartMs - 12 * 60 * 60 * 1000;
-    const bioWindowEndMs = weekEndMs + 12 * 60 * 60 * 1000;
+    // Determinación precisa del tiempo actual respecto a la semana en vista:
+    // 1. Si la semana en vista es la semana en curso: el pasado (antes de 'now') es estrictamente inmutable.
+    // 2. Si es una semana futura: toda la semana está por delante (currentTime = inicio de esa semana).
+    // 3. Si es una semana pasada: todo ya ocurrió (currentTime = fin de esa semana, inmutable).
+    const now = new Date();
+    let currentTime: Date;
+    if (now.getTime() >= weekStartMs && now.getTime() < weekEndMs) {
+      currentTime = now;
+    } else if (now.getTime() < weekStartMs) {
+      currentTime = weekMon;
+    } else {
+      currentTime = new Date(weekEndMs);
+    }
 
-    const isCurrentWeekSleep = (e: Event) => {
-      if (e.categoryId !== 'cat-sleep' && !e.id.startsWith('sleep-bio-')) return false;
-      if (!e.startTime) return false;
-      const s = new Date(e.startTime).getTime();
-      return s >= bioWindowStartMs && s < bioWindowEndMs;
-    };
+    const isSleepEvent = (e: Event) => e.categoryId === 'cat-sleep' || e.id.startsWith('sleep-bio-');
+    const isFillerEvent = (e: Event) => e.id.startsWith('filler-');
 
-    // Preservar eventos que pertenezcan a otras semanas (excluyendo cualquier descanso que toque esta semana)
+    // Preservar eventos de otras semanas (purgando cualquier sueño si no está autorizado)
     const otherWeeksEvents = events.filter((e) => {
-      if (isCurrentWeekSleep(e)) return false;
+      if (!autoGenerateSleep && isSleepEvent(e)) return false;
+      if (!fillAvailableTime && isFillerEvent(e)) return false;
       if (!e.startTime) return false;
       const s = new Date(e.startTime).getTime();
       return s < weekStartMs || s >= weekEndMs;
     });
 
-    // Eventos de la semana en vista (excluyendo descanso previo para recalcularlo de forma limpia)
+    // Eventos de la semana en vista (los bloques filler se eliminan para re-evaluar desde cero)
     const thisWeekEvents = events.filter((e) => {
-      if (isCurrentWeekSleep(e)) return false;
+      if (isFillerEvent(e)) return false;
+      if (!autoGenerateSleep && isSleepEvent(e)) return false;
       if (!e.startTime) return true;
       const s = new Date(e.startTime).getTime();
       return s >= weekStartMs && s < weekEndMs;
     });
 
-    // Sintetizar bloques de descanso frescos con ID determinista de fecha YYYY-MM-DD
-    const freshSleepBlocks = synthesizeBiologicalSleepEvents(thisWeekEvents, params, travelMatrix, weekMon);
-    const candidateEvents = [...thisWeekEvents, ...freshSleepBlocks];
+    const nonSleepEvents = thisWeekEvents.filter((e) => !isSleepEvent(e));
+
+    // Solo proyectar descanso visual si el usuario lo autorizó expresamente (autoGenerateSleep = true)
+    let freshSleepBlocks: Event[] = [];
+    if (autoGenerateSleep) {
+      freshSleepBlocks = synthesizeBiologicalSleepEvents(nonSleepEvents, params, travelMatrix, weekMon);
+    }
+
+    const candidateEvents = [...nonSleepEvents, ...freshSleepBlocks];
 
     const context: ConstraintContext = {
       candidateEvents,
@@ -692,8 +741,9 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
       params,
       travelMatrix,
       weather,
-      currentTime: new Date(weekMon.getTime() - 1000), // Permitir optimizar la semana completa
+      currentTime, // Inmutabilidad estricta: solo se programa de aquí en adelante
       metaSliders,
+      fillAvailableTime,
     };
 
     const result = solveSchedule(candidateEvents, context, weekMon);
@@ -703,9 +753,11 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
       diff.summary = '¡Tu agenda ya se encuentra en su distribución matemática óptima! Todos tus turnos fijos, descansos biológicos y metas de estudio respetan las restricciones sin conflictos.';
     }
 
-    // Deduplicación estricta por ID garantizando 0 colisiones y 0 acumulaciones
+    // Deduplicación estricta por ID
     const uniqueMap = new Map<string, Event>();
     for (const ev of [...otherWeeksEvents, ...result.schedule]) {
+      if (!autoGenerateSleep && isSleepEvent(ev)) continue;
+      if (!fillAvailableTime && isFillerEvent(ev)) continue;
       uniqueMap.set(ev.id, ev);
     }
     const finalEvents = Array.from(uniqueMap.values());

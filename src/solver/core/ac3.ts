@@ -31,6 +31,10 @@ export function pruneDomainsAC3(
       const candidateStart = weekSlots[slotIdx].start;
       const candidateEnd = new Date(candidateStart.getTime() + event.durationMinutes * 60 * 1000);
 
+      // Poda 0.5: Inmutabilidad estricta del pasado.
+      // El tiempo que ya pasó, ya pasó: un evento jamás puede comenzar antes de context.currentTime
+      if (candidateStart < context.currentTime) continue;
+
       // Poda 1: Deadline (si tiene fecha límite, no puede terminar después)
       if (event.deadline) {
         const deadlineDate = typeof event.deadline === 'string' ? new Date(event.deadline) : event.deadline;

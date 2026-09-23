@@ -24,6 +24,8 @@ export interface ConstraintContext {
     social: number;
     wellness: number;
   };
+  /** Opción "Llenar": cuando está activa, el solver llena los huecos libres en proporción matemática */
+  fillAvailableTime?: boolean;
 }
 
 /**

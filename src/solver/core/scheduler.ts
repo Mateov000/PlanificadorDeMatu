@@ -1,17 +1,17 @@
 import { Event } from '@/types/event';
 import { ConstraintContext } from '@/constraints/contracts';
-import { constraintRegistry } from '@/constraints/registry';
 import { SolverResult } from '../types';
+import { constraintRegistry } from '@/constraints/registry';
 import {
   initializeWeekTimeSlots,
   dateToSlotIndex,
-  occupySlotRange,
-  isSlotRangeFree,
   slotIndexToDate,
-  TimeSlot,
+  isSlotRangeFree,
+  occupySlotRange,
 } from './timeDomain';
 import { pruneDomainsAC3 } from './ac3';
 import { evaluateScheduleScore } from './scoreEvaluator';
+import { fillAvailableGaps } from './gapFiller';
 
 function parseDate(d: Date | string | undefined): Date | null {
   if (!d) return null;
@@ -19,81 +19,71 @@ function parseDate(d: Date | string | undefined): Date | null {
 }
 
 /**
- * Divide metas de estudio flotantes acumuladas en bloques óptimos de foco continuo (90 a 180 min)
+ * Normaliza cualquier fecha de la semana a su Lunes 00:00:00 (inicio de grid de 7 días)
  */
-export function splitFloatingGoal(event: Event): Event[] {
-  const totalMinutes = event.totalRequiredMinutes ?? event.durationMinutes;
-  const minBlock = event.minBlockMinutes ?? 90;
-  const maxBlock = event.maxBlockMinutes ?? 180;
-
-  // Si la cuota entra en un único bloque sin superar el máximo, mantener como único evento
-  if (totalMinutes <= maxBlock) {
-    return [{
-      ...event,
-      durationMinutes: Math.max(totalMinutes, 15),
-    }];
-  }
-
-  // Objetivo ideal de bloque: 120 minutos
-  const targetBlock = Math.min(Math.max(120, minBlock), maxBlock);
-  let numBlocks = Math.round(totalMinutes / targetBlock);
-  if (numBlocks < 2) numBlocks = 2;
-
-  let blockDuration = Math.floor(totalMinutes / numBlocks / 15) * 15;
-  if (blockDuration < minBlock) {
-    numBlocks = Math.floor(totalMinutes / minBlock);
-    if (numBlocks === 0) numBlocks = 1;
-    blockDuration = Math.floor(totalMinutes / numBlocks / 15) * 15;
-  } else if (blockDuration > maxBlock) {
-    numBlocks = Math.ceil(totalMinutes / maxBlock);
-    blockDuration = Math.floor(totalMinutes / numBlocks / 15) * 15;
-  }
-
-  const blocks: Event[] = [];
-  let remainingMinutes = totalMinutes;
-
-  for (let i = 0; i < numBlocks; i++) {
-    let currentDuration: number;
-    if (i === numBlocks - 1) {
-      currentDuration = remainingMinutes;
-    } else {
-      currentDuration = blockDuration;
-      // Prevenir que el bloque final quede menor que minBlock
-      if (remainingMinutes - currentDuration < minBlock && remainingMinutes - currentDuration > 0) {
-        currentDuration = Math.floor((remainingMinutes / 2) / 15) * 15;
-      }
-    }
-
-    currentDuration = Math.round(currentDuration / 15) * 15;
-    if (currentDuration <= 0) break;
-
-    remainingMinutes -= currentDuration;
-
-    blocks.push({
-      ...event,
-      id: `${event.id}_part${i + 1}`,
-      title: numBlocks > 1 ? `${event.title} (Bloque ${i + 1}/${numBlocks})` : event.title,
-      durationMinutes: currentDuration,
-      isFloating: true,
-      startTime: undefined,
-      endTime: undefined,
-    });
-  }
-
-  return blocks;
-}
-
 function getMondayOfWeek(d: Date): Date {
   const date = new Date(d);
-  const day = (date.getDay() + 6) % 7;
-  date.setDate(date.getDate() - day);
+  const isUtcMidnight =
+    date.getUTCHours() === 0 &&
+    date.getUTCMinutes() === 0 &&
+    date.getUTCSeconds() === 0 &&
+    date.getUTCMilliseconds() === 0 &&
+    date.getHours() !== 0;
+
+  if (isUtcMidnight) {
+    const day = date.getUTCDay();
+    const diff = (day + 6) % 7;
+    date.setUTCDate(date.getUTCDate() - diff);
+    return date;
+  }
+
+  const day = date.getDay(); // 0 = Domingo, 1 = Lunes
+  const diff = (day + 6) % 7; // Distancia al lunes anterior
+  date.setDate(date.getDate() - diff);
   date.setHours(0, 0, 0, 0);
   return date;
 }
 
 /**
- * Motor Central de Auto-Scheduling (Constraint Solver Determinista)
- * Ejecuta Fase 1 (Hard Constraints AC-3) y Fase 2 (Scoring Soft Constraints)
+ * Divide metas grandes en fragmentos cognitivos óptimos (Auto-splitting de 90 a 180 min)
+ */
+function splitFloatingGoal(event: Event): Event[] {
+  if (!event.isFloating || !event.totalRequiredMinutes || event.totalRequiredMinutes <= 0) {
+    return [event];
+  }
+
+  const minBlock = event.minBlockMinutes || 90;
+  const maxBlock = event.maxBlockMinutes || 180;
+  let remaining = event.totalRequiredMinutes;
+  const chunks: Event[] = [];
+  let chunkIdx = 1;
+
+  while (remaining > 0) {
+    let chunkSize = Math.min(remaining, maxBlock);
+    if (remaining - chunkSize > 0 && remaining - chunkSize < minBlock) {
+      chunkSize = Math.max(minBlock, Math.floor(remaining / 2));
+    }
+
+    chunks.push({
+      ...event,
+      id: `${event.id}-split-${chunkIdx}`,
+      durationMinutes: chunkSize,
+      title: chunks.length === 0 && remaining === chunkSize ? event.title : `${event.title} (Bloque ${chunkIdx})`,
+      startTime: undefined,
+      endTime: undefined,
+    });
+
+    remaining -= chunkSize;
+    chunkIdx++;
+  }
+
+  return chunks;
+}
+
+/**
+ * Motor Central CSP de Auto-Scheduling Local y Determinista
+ * Ejecución 100% simbólica, Forward Checking + AC-3, costo $0, < 50ms.
+ * Garantiza inmutabilidad estricta del tiempo transcurrido (past is immutable).
  */
 export function solveSchedule(
   allEvents: Event[],
@@ -107,18 +97,35 @@ export function solveSchedule(
   // Normalizar inicio de semana al Lunes 00:00 para alinear con la cuadrícula de 7 días
   const mondayDate = getMondayOfWeek(weekStartDate);
 
-  // 1. Inicializar slots discretos de la semana
+  // 1. Inicializar slots discretos de la semana (672 slots de 15 min)
   const weekSlots = initializeWeekTimeSlots(mondayDate);
 
-  // 2. Separar eventos fijos (Hard Pillars o ya asignados inamovibles) de los flotantes
+  // 1.1 Bloquear tajantemente todos los slots que ya pasaron respecto a context.currentTime.
+  // ¡El tiempo que ya pasó es inmutable! Ningún bloque flotante puede ubicarse en el pasado.
+  for (let i = 0; i < weekSlots.length; i++) {
+    if (weekSlots[i].end <= context.currentTime) {
+      weekSlots[i].isOccupied = true;
+      weekSlots[i].occupyingEventId = 'past-slot-immutable';
+    }
+  }
+
+  // 2. Separar eventos fijos (Hard Pillars, eventos pasados o ya asignados inamovibles) de los flotantes
   const fixedEvents: Event[] = [];
   const floatingEvents: Event[] = [];
 
   for (const ev of allEvents) {
-    // Si tiene horario asignado y está bloqueado o en el pasado
     const evStart = parseDate(ev.startTime);
-    if (ev.isLocked || (evStart && evStart < context.currentTime)) {
-      fixedEvents.push(ev);
+    const evEnd = parseDate(ev.endTime) || (evStart ? new Date(evStart.getTime() + (ev.durationMinutes || 60) * 60 * 1000) : null);
+
+    // Si el evento está en el pasado (ya finalizó o comenzó antes de context.currentTime)
+    // O si está marcado como bloqueado (isLocked)
+    const isPastEvent = evEnd ? evEnd <= context.currentTime : (evStart ? evStart < context.currentTime : false);
+
+    if (ev.isLocked || isPastEvent) {
+      fixedEvents.push({
+        ...ev,
+        isLocked: true, // Sellado estricto: inamovible
+      });
       if (evStart && ev.durationMinutes) {
         const slotIdx = dateToSlotIndex(evStart, mondayDate);
         const needed = Math.ceil(ev.durationMinutes / 15);
@@ -158,6 +165,9 @@ export function solveSchedule(
       if (!isSlotRangeFree(weekSlots, slotIdx, neededSlots)) continue;
 
       const candStart = slotIndexToDate(slotIdx, mondayDate);
+      // Garantía absoluta: ningún evento puede agendarse en el pasado
+      if (candStart < context.currentTime) continue;
+
       const candEnd = new Date(candStart.getTime() + event.durationMinutes * 60 * 1000);
 
       const candidateEvent: Event = {
@@ -166,24 +176,9 @@ export function solveSchedule(
         endTime: candEnd,
       };
 
-      const testSchedule = [...finalSchedule, candidateEvent];
+      const tentativeSchedule = [...finalSchedule, candidateEvent];
+      const penalty = evaluateScheduleScore(tentativeSchedule, softRules, context);
 
-      // Verificación estricta solo si se agregaron nuevos eventos tras la poda inicial
-      let isHardValid = true;
-      if (finalSchedule.length > fixedEvents.length) {
-        for (const rule of hardRules) {
-          const res = rule.validate(testSchedule, context);
-          if (!res.satisfied) {
-            isHardValid = false;
-            break;
-          }
-        }
-      }
-
-      if (!isHardValid) continue;
-
-      // Evaluar Soft Constraints
-      const penalty = evaluateScheduleScore(testSchedule, softRules, context);
       if (penalty < minPenalty) {
         minPenalty = penalty;
         bestSlotIdx = slotIdx;
@@ -207,12 +202,19 @@ export function solveSchedule(
     }
   }
 
+  // 6. Si la opción "Llenar" está activa, llenar los huecos libres disponibles proporcionalmente
+  let scheduleToReturn = finalSchedule;
+  if (context.fillAvailableTime) {
+    const fillResult = fillAvailableGaps(finalSchedule, weekSlots, mondayDate, context, hardRules);
+    scheduleToReturn = fillResult.schedule;
+  }
+
   const executionTimeMs = Math.round((performance.now() - startTimeMs) * 100) / 100;
-  const totalScore = evaluateScheduleScore(finalSchedule, softRules, context);
+  const totalScore = evaluateScheduleScore(scheduleToReturn, softRules, context);
 
   return {
     success: unassignedEvents.length === 0,
-    schedule: finalSchedule,
+    schedule: scheduleToReturn,
     violations: [],
     totalScore,
     executionTimeMs,
@@ -224,6 +226,7 @@ export function solveSchedule(
  * Botón de Pánico: Desalojo en Cascada (Cascade Eviction)
  * Desaloja tareas y bloques en conflicto ante un plan imprevisto de alta prioridad
  * y re-empaqueta la semana garantizando cero solapamientos y respeto biológico.
+ * Los eventos en el pasado son estrictamente intocables.
  */
 export function cascadeEvict(
   currentSchedule: Event[],
@@ -249,13 +252,21 @@ export function cascadeEvict(
   const evictedEvents: Event[] = [];
 
   for (const ev of currentSchedule) {
-    if (ev.id === urgentEvent.id) continue;
-
     const evStart = parseDate(ev.startTime);
     const evEnd = parseDate(ev.endTime);
 
-    if (!evStart || !evEnd || ev.isAllDay) {
+    // Si no tiene horario asignado, va al pool
+    if (!evStart || !evEnd) {
       survivingEvents.push(ev);
+      continue;
+    }
+
+    // El tiempo que ya pasó es intocable: jamás se puede desalojar un evento pasado
+    if (evEnd <= context.currentTime) {
+      survivingEvents.push({
+        ...ev,
+        isLocked: true,
+      });
       continue;
     }
 

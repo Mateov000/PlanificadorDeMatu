@@ -13,10 +13,10 @@ import { WeeklyOnboardingModal } from '@/components/modals/WeeklyOnboardingModal
 import { EditEventModal } from '@/components/modals/EditEventModal';
 import { FrictionFeedbackPopover } from '@/components/calendar/FrictionFeedbackPopover';
 import { useScheduleStore } from '@/lib/store/scheduleStore';
-import { RefreshCw, CloudSun, ShieldCheck, Clock } from 'lucide-react';
+import { RefreshCw, CloudSun, ShieldCheck, Clock, Sparkles } from 'lucide-react';
 
 export default function CalendarPage() {
-  const { recalculateSchedule, setWeather, weather } = useScheduleStore();
+  const { recalculateSchedule, setWeather, weather, fillAvailableTime, setFillAvailableTime } = useScheduleStore();
 
   const currentWeather = React.useMemo(() => {
     if (!weather || weather.length === 0) return null;
@@ -108,6 +108,41 @@ export default function CalendarPage() {
             <ShieldCheck size={16} color="var(--accent-emerald)" />
             <span>8h Sueño Protegido</span>
           </div>
+
+          {/* Opción Llenar Tiempo Disponible */}
+          <label
+            className="glass-panel"
+            style={{
+              padding: '0.65rem 1rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.55rem',
+              fontSize: '0.85rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              userSelect: 'none',
+              border: fillAvailableTime ? '1px solid rgba(99, 102, 241, 0.5)' : '1px solid rgba(255, 255, 255, 0.08)',
+              background: fillAvailableTime ? 'rgba(99, 102, 241, 0.15)' : undefined,
+              color: fillAvailableTime ? '#c7d2fe' : 'var(--text-secondary)',
+              transition: 'all 0.2s ease',
+            }}
+            title="Cuando está tildada, el auto-scheduling llena todo el tiempo disponible con bloques de estudio y sociales en proporción con cuánto se llenó la semana de eso."
+          >
+            <input
+              type="checkbox"
+              id="toggle-fill-available-time"
+              checked={fillAvailableTime}
+              onChange={(e) => setFillAvailableTime(e.target.checked)}
+              style={{
+                accentColor: '#6366f1',
+                width: '16px',
+                height: '16px',
+                cursor: 'pointer',
+              }}
+            />
+            <Sparkles size={16} color={fillAvailableTime ? '#818cf8' : 'currentColor'} />
+            <span>Llenar</span>
+          </label>
 
           {/* Botón de Recálculo Forzado */}
           <button

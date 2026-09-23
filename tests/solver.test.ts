@@ -286,10 +286,10 @@ describe('Solver & Panic Button Performance', () => {
     expect(evictedResult.success).toBe(true);
     expect(evictedResult.executionTimeMs).toBeLessThan(75); // Latencia en entorno de test < 75 ms
     // El plan social está agendado
-    const socialScheduled = evictedResult.schedule.find((e) => e.id === 'social-beer');
+    const socialScheduled = evictedResult.schedule.find((e: Event) => e.id === 'social-beer');
     expect(socialScheduled).toBeDefined();
     // CalSoft sigue en la agenda pero reubicado (no solapado)
-    const calsoftRescheduled = evictedResult.schedule.find((e) => e.id === 'study-calsoft');
+    const calsoftRescheduled = evictedResult.schedule.find((e: Event) => e.id === 'study-calsoft');
     expect(calsoftRescheduled).toBeDefined();
     expect(calsoftRescheduled?.startTime?.toString()).not.toBe(urgentPlan.startTime?.toString());
   });
@@ -640,8 +640,8 @@ describe('Solver & Panic Button Performance', () => {
     expect(useScheduleStore.getState().events.find((e) => e.id === 'sim-extra-shift')).toBeUndefined();
 
     // La simulación contiene ambos eventos
-    expect(simResult.schedule.find((e) => e.id === 'sim-extra-shift')).toBeDefined();
-    expect(simResult.schedule.find((e) => e.id === 'real-class')).toBeDefined();
+    expect(simResult.schedule.find((e: Event) => e.id === 'sim-extra-shift')).toBeDefined();
+    expect(simResult.schedule.find((e: Event) => e.id === 'real-class')).toBeDefined();
   });
 
   it('Paso 3.1: Offline-first synchronization saves and retrieves cached events from local storage', async () => {
@@ -1147,6 +1147,124 @@ describe('Periodicidad y Eventos Recurrentes Personalizables', () => {
     // Todos los eventos de sueño y bloques de esta semana deben haber sido completamente eliminados
     expect(sleepEventsAfterDelete.length).toBe(0);
     expect(eventsAfterDelete.length).toBe(0);
+  });
+
+  describe('Modo Llenar: Proportional Gap Filling', () => {
+    it('fills available free daytime gaps proportionally to base study and social load', () => {
+      const monday = new Date('2026-09-21T00:00:00Z');
+      // Supongamos que en la semana tenemos 6 horas de estudio (360 min) y 2 horas de social (120 min)
+      // Proporción esperada: Estudio = 360 / 480 = 75%, Social = 120 / 480 = 25% (relación 3:1)
+      const baseEvents: Event[] = [
+        {
+          id: 'study-fixed-1',
+          title: 'Cursada Teórica',
+          categoryId: 'cat-study-fixed',
+          startTime: new Date('2026-09-21T09:00:00Z'),
+          endTime: new Date('2026-09-21T13:00:00Z'),
+          durationMinutes: 240,
+          isLocked: true,
+          location: 'Facultad',
+          cognitiveLoad: 2,
+          physicalLoad: 0,
+          energyDrain: 'normal',
+        },
+        {
+          id: 'study-float-1',
+          title: 'Estudio Práctica',
+          categoryId: 'cat-study-float',
+          startTime: new Date('2026-09-22T10:00:00Z'),
+          endTime: new Date('2026-09-22T12:00:00Z'),
+          durationMinutes: 120,
+          isLocked: true,
+          location: 'Casa',
+          cognitiveLoad: 2,
+          physicalLoad: 0,
+          energyDrain: 'normal',
+        },
+        {
+          id: 'social-1',
+          title: 'Café con Amigos',
+          categoryId: 'cat-social',
+          startTime: new Date('2026-09-23T18:00:00Z'),
+          endTime: new Date('2026-09-23T20:00:00Z'),
+          durationMinutes: 120,
+          isLocked: true,
+          location: 'Plaza Mitre',
+          cognitiveLoad: 0,
+          physicalLoad: 0,
+          energyDrain: 'low',
+        },
+      ];
+
+      const context: ConstraintContext = {
+        candidateEvents: baseEvents,
+        originalSchedule: baseEvents,
+        params: defaultConstraintParams,
+        travelMatrix: createTravelMatrixLookup(),
+        currentTime: monday, // Toda la semana está por delante
+        metaSliders: { academic: 1.0, social: 1.0, wellness: 1.0 },
+        fillAvailableTime: true,
+      };
+
+      const result = solveSchedule(baseEvents, context, monday);
+      expect(result.success).toBe(true);
+
+      const fillerEvents = result.schedule.filter((e: Event) => e.id.startsWith('filler-'));
+      expect(fillerEvents.length).toBeGreaterThan(0);
+
+      const studyFiller = fillerEvents.filter((e: Event) => e.categoryId === 'cat-study-float');
+      const socialFiller = fillerEvents.filter((e: Event) => e.categoryId === 'cat-social');
+
+      expect(studyFiller.length).toBeGreaterThan(0);
+      expect(socialFiller.length).toBeGreaterThan(0);
+
+      let studyFillerMinutes = 0;
+      for (const e of studyFiller) studyFillerMinutes += e.durationMinutes || 60;
+
+      let socialFillerMinutes = 0;
+      for (const e of socialFiller) socialFillerMinutes += e.durationMinutes || 60;
+
+      // Estudio base era 360 vs Social base 120 (3:1). Los minutos de relleno de estudio deben ser mayores que los de social
+      expect(studyFillerMinutes).toBeGreaterThan(socialFillerMinutes);
+
+      // Ningún bloque de relleno debe solaparse con los eventos base ni entre sí
+      for (let i = 0; i < result.schedule.length; i++) {
+        for (let j = i + 1; j < result.schedule.length; j++) {
+          const ev1 = result.schedule[i];
+          const ev2 = result.schedule[j];
+          const s1 = new Date(ev1.startTime!).getTime();
+          const e1 = new Date(ev1.endTime!).getTime();
+          const s2 = new Date(ev2.startTime!).getTime();
+          const e2 = new Date(ev2.endTime!).getTime();
+          const overlap = s1 < e2 && e1 > s2;
+          expect(overlap).toBe(false);
+        }
+      }
+    });
+
+    it('toggling fillAvailableTime in useScheduleStore generates and removes filler blocks cleanly', async () => {
+      const { useScheduleStore, initialEvents } = await import('../src/lib/store/scheduleStore');
+      useScheduleStore.setState({ events: initialEvents, fillAvailableTime: false });
+      const store = useScheduleStore.getState();
+
+      // Sin llenar: ningún evento filler
+      store.recalculateSchedule();
+      let events = useScheduleStore.getState().events;
+      let fillers = events.filter((e) => e.id.startsWith('filler-'));
+      expect(fillers.length).toBe(0);
+
+      // Activar modo Llenar
+      store.setFillAvailableTime(true);
+      events = useScheduleStore.getState().events;
+      fillers = events.filter((e) => e.id.startsWith('filler-'));
+      expect(fillers.length).toBeGreaterThan(0);
+
+      // Desactivar modo Llenar: todos los bloques filler deben ser removidos limpiamente
+      store.setFillAvailableTime(false);
+      events = useScheduleStore.getState().events;
+      fillers = events.filter((e) => e.id.startsWith('filler-'));
+      expect(fillers.length).toBe(0);
+    });
   });
 });
 

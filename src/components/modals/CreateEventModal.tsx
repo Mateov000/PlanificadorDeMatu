@@ -87,6 +87,12 @@ export const CreateEventModal: React.FC = () => {
       };
     }
 
+    const now = new Date();
+    if (end.getTime() <= now.getTime() && !isLocked) {
+      alert('⛔ El tiempo transcurrido es inmutable. Si necesitas hacer una actividad o tarea, no puedes agendarla en el pasado. Programa tus eventos a partir de ahora.');
+      return;
+    }
+
     const newEvent: Event = {
       id: `evt-${Date.now()}`,
       title: title.trim(),

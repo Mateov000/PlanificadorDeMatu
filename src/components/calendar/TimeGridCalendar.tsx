@@ -11,6 +11,10 @@ import {
   Trash2,
   CalendarDays,
   Plus,
+  Moon,
+  Lock,
+  Clock,
+  Sparkles,
 } from 'lucide-react';
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
@@ -40,6 +44,10 @@ export const TimeGridCalendar: React.FC = () => {
     setFrictionFeedback,
     setCreateModalOpen,
     openEditModal,
+    autoGenerateSleep,
+    toggleAutoGenerateSleep,
+    fillAvailableTime,
+    toggleFillAvailableTime,
   } = useScheduleStore();
 
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -256,8 +264,48 @@ export const TimeGridCalendar: React.FC = () => {
           </div>
         </div>
 
-        {/* Lado Derecho: Contador y Botón de Eliminación Segura de Semana */}
+        {/* Lado Derecho: Selector de Sueño, Contador y Botón de Eliminación */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', flexWrap: 'wrap' }}>
+          {/* Toggle de Visualización de Bloques de Sueño */}
+          <button
+            onClick={toggleAutoGenerateSleep}
+            className={`btn ${autoGenerateSleep ? 'btn-primary' : 'btn-secondary'}`}
+            style={{
+              padding: '0.42rem 0.8rem',
+              fontSize: '0.8rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              borderColor: autoGenerateSleep ? 'rgba(129, 140, 248, 0.4)' : undefined,
+            }}
+            title={autoGenerateSleep ? 'Sueño visual activo. Clic para ocultar bloques.' : 'El optimizador protege 8h de sueño sin llenar tu calendario. Clic para proyectar bloques de sueño.'}
+          >
+            <Moon size={14} color={autoGenerateSleep ? '#a5b4fc' : 'var(--text-muted)'} />
+            <span>{autoGenerateSleep ? 'Sueño: Visible' : 'Sueño: Oculto'}</span>
+          </button>
+
+          {/* Toggle de Llenar Tiempo Disponible */}
+          <button
+            onClick={toggleFillAvailableTime}
+            className={`btn ${fillAvailableTime ? 'btn-primary' : 'btn-secondary'}`}
+            style={{
+              padding: '0.42rem 0.8rem',
+              fontSize: '0.8rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              borderColor: fillAvailableTime ? 'rgba(99, 102, 241, 0.5)' : undefined,
+              background: fillAvailableTime ? 'rgba(99, 102, 241, 0.25)' : undefined,
+            }}
+            title={
+              fillAvailableTime
+                ? 'Modo Llenar activo: se llenan todos los huecos libres proporcionalmente entre Estudio y Social. Clic para desactivar.'
+                : 'Clic para activar el modo Llenar y ocupar todo el tiempo disponible con estudio y vida social en proporción a su meta semanal.'
+            }
+          >
+            <Sparkles size={14} color={fillAvailableTime ? '#a5b4fc' : 'var(--text-muted)'} />
+            <span>{fillAvailableTime ? 'Llenar: Activo' : 'Llenar: Desactivado'}</span>
+          </button>
           <span style={{ fontSize: '0.825rem', color: 'var(--text-muted)' }}>
             {weekEventsCount} {weekEventsCount === 1 ? 'bloque activo' : 'bloques activos'}
           </span>
@@ -345,12 +393,34 @@ export const TimeGridCalendar: React.FC = () => {
             <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>HORA</span>
           </div>
           {weekDays.map((day, idx) => {
+            const dayStart = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, 0, 0, 0).getTime();
+            const dayEnd = dayStart + 24 * 60 * 60 * 1000;
+            const isPastDay = dayEnd <= now.getTime();
             const isToday = day.toDateString() === todayStr;
             const dayNames = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
             return (
-              <div key={idx} className={`timegrid-header-cell ${isToday ? 'today' : ''}`}>
-                <div className="day-name">{dayNames[day.getDay()]}</div>
-                <div className="day-number" style={{ color: isToday ? 'var(--accent-blue)' : 'inherit' }}>
+              <div
+                key={idx}
+                className={`timegrid-header-cell ${isToday ? 'today' : ''}`}
+                style={{
+                  opacity: isPastDay ? 0.7 : 1,
+                  background: isPastDay ? 'rgba(15, 23, 42, 0.5)' : undefined,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '3px' }}>
+                  <div className="day-name">{dayNames[day.getDay()]}</div>
+                  {isPastDay && (
+                    <span title="Día finalizado (inmutable)">
+                      <Lock size={10} color="var(--text-muted)" />
+                    </span>
+                  )}
+                </div>
+                <div
+                  className="day-number"
+                  style={{
+                    color: isToday ? 'var(--accent-blue)' : isPastDay ? 'var(--text-muted)' : 'inherit',
+                  }}
+                >
                   {day.getDate()}
                 </div>
               </div>
@@ -375,12 +445,19 @@ export const TimeGridCalendar: React.FC = () => {
 
           {/* 7 Columnas de Días */}
           {weekDays.map((day, dayIdx) => {
+            const dayStart = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, 0, 0, 0).getTime();
+            const dayEnd = dayStart + 24 * 60 * 60 * 1000;
+            const isPastDay = dayEnd <= now.getTime();
             const isToday = day.toDateString() === todayStr;
 
             return (
               <div
                 key={dayIdx}
                 className={`day-column ${isToday ? 'today' : ''}`}
+                style={{
+                  position: 'relative',
+                  background: isPastDay ? 'rgba(15, 23, 42, 0.35)' : undefined,
+                }}
                 onDragOver={(e) => {
                   e.preventDefault();
                   e.dataTransfer.dropEffect = 'move';
@@ -401,6 +478,17 @@ export const TimeGridCalendar: React.FC = () => {
 
                   const eventToMove = events.find((ev) => ev.id === eventId);
                   if (!eventToMove) return;
+
+                  // Inmutabilidad del pasado: no permitir mover eventos a horas pasadas
+                  if (newStart.getTime() < Date.now()) {
+                    setFrictionFeedback({
+                      eventId: 'past-drop-warning',
+                      eventTitle: '⛔ El tiempo pasado es inmutable: no puedes mover eventos a horas ya transcurridas.',
+                      x: e.clientX,
+                      y: e.clientY,
+                    });
+                    return;
+                  }
 
                   const duration = eventToMove.durationMinutes || 60;
                   const newEnd = new Date(newStart.getTime() + duration * 60 * 1000);
@@ -424,10 +512,21 @@ export const TimeGridCalendar: React.FC = () => {
                   const offsetY = e.clientY - rect.top;
                   const minutes = Math.floor(offsetY / 15) * 15;
 
-                  const clickedTime = new Date(day);
+                  let clickedTime = new Date(day);
                   clickedTime.setHours(Math.floor(minutes / 60), minutes % 60, 0, 0);
-                  const endTime = new Date(clickedTime.getTime() + 60 * 60 * 1000);
 
+                  const currentTime = new Date();
+                  if (clickedTime.getTime() < currentTime.getTime()) {
+                    setFrictionFeedback({
+                      eventId: 'past-click-notice',
+                      eventTitle: '⏱️ El tiempo transcurrido es inmutable. El evento se programará a partir de ahora.',
+                      x: e.clientX,
+                      y: e.clientY,
+                    });
+                    clickedTime = currentTime;
+                  }
+
+                  const endTime = new Date(clickedTime.getTime() + 60 * 60 * 1000);
                   setCreateModalOpen(true, { start: clickedTime, end: endTime });
                 }}
               >
@@ -440,13 +539,61 @@ export const TimeGridCalendar: React.FC = () => {
                   />
                 ))}
 
-                {/* Línea roja de hora actual si el día coincide */}
+                {/* Sombra de tiempo transcurrido en el día de hoy */}
+                {isToday && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      height: `${currentMinutesToday}px`,
+                      background: 'rgba(15, 23, 42, 0.35)',
+                      pointerEvents: 'none',
+                      zIndex: 1,
+                    }}
+                  />
+                )}
+
+                {/* Sombra completa en días que ya finalizaron */}
+                {isPastDay && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      inset: 0,
+                      background: 'rgba(15, 23, 42, 0.45)',
+                      pointerEvents: 'none',
+                      zIndex: 1,
+                    }}
+                  />
+                )}
+
+                {/* Línea roja de hora actual con etiqueta AHORA */}
                 {isToday && currentDayIndex === dayIdx && (
                   <div
                     className="now-indicator"
-                    style={{ top: `${currentMinutesToday}px` }}
+                    style={{
+                      top: `${currentMinutesToday}px`,
+                      zIndex: 10,
+                      display: 'flex',
+                      alignItems: 'center',
+                    }}
                   >
                     <div className="now-dot" />
+                    <span
+                      style={{
+                        fontSize: '0.6rem',
+                        background: '#ef4444',
+                        color: '#ffffff',
+                        padding: '1px 5px',
+                        borderRadius: '3px',
+                        marginLeft: '4px',
+                        fontWeight: 700,
+                        letterSpacing: '0.02em',
+                      }}
+                    >
+                      AHORA
+                    </span>
                   </div>
                 )}
 
