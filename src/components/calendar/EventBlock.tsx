@@ -11,6 +11,7 @@ interface EventBlockProps {
   color?: string;
   onClick?: () => void;
   onDismissRepurpose?: () => void;
+  onDragStart?: (e: React.DragEvent) => void;
 }
 
 function formatTime(d?: Date | string): string {
@@ -26,14 +27,18 @@ export const EventBlock: React.FC<EventBlockProps> = ({
   color = '#3b82f6',
   onClick,
   onDismissRepurpose,
+  onDragStart,
 }) => {
   const isShort = heightPx < 45;
 
   return (
     <div
       className="event-block"
+      draggable={!event.isLocked}
+      onDragStart={onDragStart}
       onClick={onClick}
       style={{
+        cursor: event.isLocked ? 'default' : 'grab',
         top: `${topPx}px`,
         height: `${heightPx}px`,
         backgroundColor: `${color}25`, // 15% opacidad

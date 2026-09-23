@@ -14,7 +14,14 @@ function parseDate(d?: Date | string): Date | null {
 }
 
 export const TimeGridCalendar: React.FC = () => {
-  const { events, categories, dismissAndRepurposeSlot } = useScheduleStore();
+  const {
+    events,
+    categories,
+    dismissAndRepurposeSlot,
+    updateEvent,
+    setFrictionFeedback,
+    setCreateModalOpen,
+  } = useScheduleStore();
 
   // Generar los 7 días de la semana actual partiendo del lunes
   const weekDays = useMemo(() => {
@@ -105,7 +112,68 @@ export const TimeGridCalendar: React.FC = () => {
           const dayEvents = eventsByDay.get(dayIdx) || [];
 
           return (
-            <div key={dayIdx} className={`day-column ${isToday ? 'today' : ''}`}>
+            <div
+              key={dayIdx}
+              className={`day-column ${isToday ? 'today' : ''}`}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                const eventId = e.dataTransfer.getData('text/plain');
+                if (!eventId) return;
+
+                const rect = e.currentTarget.getBoundingClientRect();
+                const offsetY = e.clientY - rect.top;
+                const rawMinutes = Math.max(0, Math.min(1425, offsetY));
+                const snappedMinutes = Math.floor(rawMinutes / 15) * 15;
+
+                const targetDay = weekDays[dayIdx];
+                const newStart = new Date(targetDay);
+                newStart.setHours(Math.floor(snappedMinutes / 60), snappedMinutes % 60, 0, 0);
+
+                const eventToMove = events.find((ev) => ev.id === eventId);
+                if (!eventToMove) return;
+
+                const duration = eventToMove.durationMinutes || 60;
+                const newEnd = new Date(newStart.getTime() + duration * 60 * 1000);
+
+                updateEvent(eventId, {
+                  startTime: newStart,
+                  endTime: newEnd,
+                  isFloating: false,
+                });
+
+                // Disparar popover de 2 segundos de feedback de fricción
+                setFrictionFeedback({
+                  eventId,
+                  eventTitle: eventToMove.title,
+                  x: e.clientX,
+                  y: e.clientY,
+                });
+              }}
+              onClick={(e) => {
+                const target = e.target as HTMLElement;
+                if (
+                  target.classList.contains('day-column') ||
+                  target.classList.contains('hour-line') ||
+                  target.classList.contains('half-hour-line')
+                ) {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const offsetY = e.clientY - rect.top;
+                  const rawMinutes = Math.max(0, Math.min(1425, offsetY));
+                  const snappedMinutes = Math.floor(rawMinutes / 15) * 15;
+
+                  const targetDay = weekDays[dayIdx];
+                  const newStart = new Date(targetDay);
+                  newStart.setHours(Math.floor(snappedMinutes / 60), snappedMinutes % 60, 0, 0);
+                  const newEnd = new Date(newStart.getTime() + 90 * 60 * 1000);
+
+                  setCreateModalOpen(true, { start: newStart, end: newEnd });
+                }
+              }}
+            >
               {/* Líneas horizontales de horas */}
               {HOURS.map((hour) => (
                 <React.Fragment key={hour}>
@@ -140,6 +208,10 @@ export const TimeGridCalendar: React.FC = () => {
                     topPx={topPx}
                     heightPx={heightPx}
                     color={color}
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData('text/plain', ev.id);
+                      e.dataTransfer.effectAllowed = 'move';
+                    }}
                     onDismissRepurpose={() => dismissAndRepurposeSlot(ev.id)}
                   />
                 );

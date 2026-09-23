@@ -109,6 +109,10 @@ interface ScheduleStore {
   isDiffModalOpen: boolean;
   isPanicModalOpen: boolean;
   isTriageModalOpen: boolean;
+  isCreateModalOpen: boolean;
+  createModalInitialTimes: { start: Date; end: Date } | null;
+  isWhatIfModalOpen: boolean;
+  frictionFeedback: { eventId: string; eventTitle: string; x: number; y: number } | null;
 
   // Acciones
   addEvent: (event: Event) => void;
@@ -121,6 +125,9 @@ interface ScheduleStore {
   closeDiffModal: () => void;
   setPanicModalOpen: (open: boolean) => void;
   setTriageModalOpen: (open: boolean) => void;
+  setCreateModalOpen: (open: boolean, times?: { start: Date; end: Date }) => void;
+  setWhatIfModalOpen: (open: boolean) => void;
+  setFrictionFeedback: (feedback: { eventId: string; eventTitle: string; x: number; y: number } | null) => void;
 
   // Métodos del Solver CSP
   recalculateSchedule: () => void;
@@ -141,6 +148,15 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
   isDiffModalOpen: false,
   isPanicModalOpen: false,
   isTriageModalOpen: false,
+  isCreateModalOpen: false,
+  createModalInitialTimes: null,
+  isWhatIfModalOpen: false,
+  frictionFeedback: null,
+
+  setCreateModalOpen: (open, times) =>
+    set({ isCreateModalOpen: open, createModalInitialTimes: times || null }),
+  setWhatIfModalOpen: (open) => set({ isWhatIfModalOpen: open }),
+  setFrictionFeedback: (feedback) => set({ frictionFeedback: feedback }),
 
   addEvent: (event) => set((state) => ({ events: [...state.events, event] })),
 

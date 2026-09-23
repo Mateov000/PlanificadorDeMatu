@@ -4,12 +4,12 @@ import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useScheduleStore } from '@/lib/store/scheduleStore';
-import { Flame, Calendar, Compass, Sliders, Download, PlusCircle } from 'lucide-react';
+import { Flame, Calendar, Compass, Sliders, Download, PlusCircle, FlaskConical, Plus } from 'lucide-react';
 import { generateIcsCalendar } from '@/lib/calendar/icsGenerator';
 
 export const Navigation: React.FC = () => {
   const pathname = usePathname();
-  const { setPanicModalOpen, setTriageModalOpen, events } = useScheduleStore();
+  const { setPanicModalOpen, setTriageModalOpen, setWhatIfModalOpen, setCreateModalOpen, events } = useScheduleStore();
 
   const handleExportIcs = () => {
     const icsContent = generateIcsCalendar(events, 'PlanificadorDeMatu');
@@ -97,7 +97,33 @@ export const Navigation: React.FC = () => {
       </nav>
 
       {/* Botones de Acción */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+        <button
+          onClick={() => setCreateModalOpen(true)}
+          className="btn btn-secondary"
+          style={{ padding: '0.5rem 0.85rem', fontSize: '0.825rem' }}
+          title="Crear un nuevo bloque de estudio, cursada o hábito"
+        >
+          <Plus size={15} />
+          <span>Crear</span>
+        </button>
+
+        <button
+          onClick={() => setWhatIfModalOpen(true)}
+          className="btn btn-secondary"
+          style={{
+            padding: '0.5rem 0.85rem',
+            fontSize: '0.825rem',
+            borderColor: 'rgba(139, 92, 246, 0.4)',
+            color: '#c4b5fd',
+            background: 'rgba(139, 92, 246, 0.12)',
+          }}
+          title="Modo Sandbox: Simular escenarios hipotéticos sin alterar tu calendario real"
+        >
+          <FlaskConical size={15} color="#a78bfa" />
+          <span>¿Y si...? Sandbox</span>
+        </button>
+
         <button
           onClick={() => setTriageModalOpen(true)}
           className="btn btn-secondary"

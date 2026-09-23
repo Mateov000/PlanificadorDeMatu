@@ -534,5 +534,105 @@ describe('Solver & Panic Button Performance', () => {
     expect(repurposedItem).toBeDefined();
     expect(repurposedItem?.explanation).toContain('capitalizando el tiempo libre');
   });
+
+  it('Paso 2.1 & 2.2: Drag & Drop rescheduling updates timing and records friction feedback', async () => {
+    const { useScheduleStore } = await import('../src/lib/store/scheduleStore');
+
+    const testEvent: Event = {
+      id: 'study-to-drag',
+      title: 'Estudio CalSoft',
+      startTime: new Date('2026-09-24T14:00:00Z'),
+      endTime: new Date('2026-09-24T16:00:00Z'),
+      durationMinutes: 120,
+      cognitiveLoad: 2,
+      physicalLoad: 0,
+      energyDrain: 'normal',
+      location: 'Casa',
+    };
+
+    useScheduleStore.setState({
+      events: [testEvent],
+      frictionFeedback: null,
+    });
+
+    const newStart = new Date('2026-09-24T17:00:00Z');
+    const newEnd = new Date('2026-09-24T19:00:00Z');
+
+    // Simular reprogramación por arrastre
+    useScheduleStore.getState().updateEvent('study-to-drag', {
+      startTime: newStart,
+      endTime: newEnd,
+      isFloating: false,
+    });
+
+    useScheduleStore.getState().setFrictionFeedback({
+      eventId: 'study-to-drag',
+      eventTitle: 'Estudio CalSoft',
+      x: 350,
+      y: 420,
+    });
+
+    const updatedState = useScheduleStore.getState();
+    const updatedEv = updatedState.events.find((e) => e.id === 'study-to-drag');
+    expect(updatedEv?.startTime).toEqual(newStart);
+    expect(updatedEv?.endTime).toEqual(newEnd);
+    expect(updatedState.frictionFeedback).not.toBeNull();
+    expect(updatedState.frictionFeedback?.eventId).toBe('study-to-drag');
+  });
+
+  it('Paso 2.3: What-If Sandbox runs isolated simulation and does not mutate real schedule until applied', async () => {
+    const { useScheduleStore } = await import('../src/lib/store/scheduleStore');
+    const { solveSchedule } = await import('../src/solver/core/scheduler');
+
+    const originalEvents: Event[] = [
+      {
+        id: 'real-class',
+        title: 'Cursada Redes',
+        startTime: new Date('2026-09-26T10:00:00Z'),
+        endTime: new Date('2026-09-26T12:00:00Z'),
+        durationMinutes: 120,
+        isLocked: true,
+        cognitiveLoad: 2,
+        physicalLoad: 0,
+        energyDrain: 'normal',
+        location: 'Facultad',
+      },
+    ];
+
+    useScheduleStore.setState({
+      events: originalEvents,
+    });
+
+    // Simular un evento hipotético (Turno extra)
+    const hypotheticalEvent: Event = {
+      id: 'sim-extra-shift',
+      title: 'Turno extra Casino',
+      startTime: new Date('2026-09-26T14:00:00Z'),
+      endTime: new Date('2026-09-26T22:00:00Z'),
+      durationMinutes: 480,
+      isLocked: true,
+      cognitiveLoad: 1,
+      physicalLoad: 2,
+      energyDrain: 'high',
+      location: 'Rambla Casino',
+      isScheduleDisruptor: true,
+    };
+
+    const context = createMockContext();
+    const startTime = performance.now();
+    const simResult = solveSchedule([...originalEvents, hypotheticalEvent], context);
+    const elapsed = performance.now() - startTime;
+
+    expect(elapsed).toBeLessThan(50); // Simulación ultrarrápida
+    expect(simResult.success).toBe(true);
+
+    // Verificar que el calendario real en el store no fue mutado
+    expect(useScheduleStore.getState().events.length).toBe(1);
+    expect(useScheduleStore.getState().events.find((e) => e.id === 'sim-extra-shift')).toBeUndefined();
+
+    // La simulación contiene ambos eventos
+    expect(simResult.schedule.find((e) => e.id === 'sim-extra-shift')).toBeDefined();
+    expect(simResult.schedule.find((e) => e.id === 'real-class')).toBeDefined();
+  });
 });
 

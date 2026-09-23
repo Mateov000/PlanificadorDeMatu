@@ -7,6 +7,9 @@ import { MetaSliders } from '@/components/controls/MetaSliders';
 import { PanicButtonModal } from '@/components/modals/PanicButtonModal';
 import { DiffViewerModal } from '@/components/modals/DiffViewerModal';
 import { SemanticTriageModal } from '@/components/modals/SemanticTriageModal';
+import { CreateEventModal } from '@/components/modals/CreateEventModal';
+import { WhatIfModal } from '@/components/modals/WhatIfModal';
+import { FrictionFeedbackPopover } from '@/components/calendar/FrictionFeedbackPopover';
 import { useScheduleStore } from '@/lib/store/scheduleStore';
 import { RefreshCw, CloudSun, ShieldCheck, Clock } from 'lucide-react';
 
@@ -95,6 +98,9 @@ export default function CalendarPage() {
       <PanicButtonModal />
       <DiffViewerModal />
       <SemanticTriageModal />
+      <CreateEventModal />
+      <WhatIfModal />
+      <FrictionFeedbackPopover />
     </main>
   );
 }
