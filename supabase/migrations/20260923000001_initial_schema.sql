@@ -1,135 +1,197 @@
--- PlanificadorDeMatu - Esquema Inicial de Base de Datos
--- PostgreSQL / Supabase Migration
+-- ============================================================================
+-- PlanificadorDeMatu - Esquema de Base de Datos para Producción
+-- Motor: PostgreSQL 15+ (Supabase)
+-- ============================================================================
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- 1. Arquetipos de Comportamiento Temporal (Trait-Based Classification)
+-- ----------------------------------------------------------------------------
+-- 1. TIPOS ENUMERADOS NATIVOS
+-- ----------------------------------------------------------------------------
+
+-- Los 5 Arquetipos Temporales universales del motor CSP
 CREATE TYPE archetype_type AS ENUM (
-  'locked_pillar',      -- Turnos laborales, cursadas fijas (Overlap = 0)
-  'floating_deadline',  -- Estudio de materias, proyectos con entrega
-  'elastic_routine',    -- Hábitos con ventanas y descansos (Gym, Cocina)
-  'social_flexible',    -- Bolsa social, amigos, salidas espontáneas
-  'logistics_buffer'    -- Desplazamientos, viandas, descanso activo
+  'locked_pillar',      -- Turnos laborales, cursadas obligatorias (Overlap = 0)
+  'floating_deadline',  -- Estudio de materias, entregas de software con cuota
+  'elastic_routine',    -- Hábitos recurrentes con ventanas y descansos (Gym, Cocina)
+  'social_flexible',    -- Bolsa social elástica, amigos, salidas espontáneas
+  'logistics_buffer'    -- Desplazamientos espaciales, viandas, descanso activo
 );
 
--- 2. Categorías de Usuario
+CREATE TYPE energy_drain_type AS ENUM ('low', 'normal', 'high');
+CREATE TYPE match_type_enum AS ENUM ('contains', 'exact', 'regex');
+CREATE TYPE constraint_type_enum AS ENUM ('hard', 'soft');
+
+-- ----------------------------------------------------------------------------
+-- 2. TABLA: custom_categories (Categorías Dinámicas del Usuario en O(1))
+-- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS categories (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   name VARCHAR(100) NOT NULL,
   slug VARCHAR(100) NOT NULL,
   color VARCHAR(30) NOT NULL DEFAULT '#3b82f6',
   icon VARCHAR(50) DEFAULT 'calendar',
   archetype archetype_type NOT NULL DEFAULT 'elastic_routine',
-  created_at TIMESTAMPTZ DEFAULT NOW(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE(user_id, slug)
 );
 
--- 3. Tabla Principal de Eventos
+CREATE INDEX IF NOT EXISTS idx_categories_user ON categories(user_id);
+
+-- ----------------------------------------------------------------------------
+-- 3. TABLA: events (Eventos Fijos, Tareas Flotantes y Hábitos del Calendario)
+-- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   category_id UUID REFERENCES categories(id) ON DELETE SET NULL,
   title VARCHAR(255) NOT NULL,
-  display_alias VARCHAR(255),               -- Máscara de privacidad para vistas públicas / Webcal
+  display_alias VARCHAR(255),                  -- Máscara de privacidad para feeds públicos/Webcal
   description TEXT,
   start_time TIMESTAMPTZ,
   end_time TIMESTAMPTZ,
   duration_minutes INT NOT NULL DEFAULT 60,
   is_all_day BOOLEAN DEFAULT FALSE,
   
-  -- Flags del Motor CSP
-  is_locked BOOLEAN DEFAULT FALSE,          -- Candado inamovible (Hard Pillar)
-  is_floating BOOLEAN DEFAULT FALSE,        -- Bloque ubicable por el solver
-  is_sensitive BOOLEAN DEFAULT FALSE,       -- Requiere display alias al exportar
+  -- Banderas de Comportamiento del Motor CSP
+  is_locked BOOLEAN DEFAULT FALSE,             -- Candado absoluto inamovible (Hard Pillar)
+  is_floating BOOLEAN DEFAULT FALSE,           -- Bloque ubicable dinámicamente por el solver
+  is_sensitive BOOLEAN DEFAULT FALSE,          -- Requiere display_alias al exportar
   is_schedule_disruptor BOOLEAN DEFAULT FALSE, -- Dispara anclaje de sueño y veto cognitivo
+  cannabis_consumed BOOLEAN DEFAULT FALSE,     -- Dispara buffer GHC-01 de descenso sobrio
   
-  -- Demandas Biológicas y Cognitivas
+  -- Demandas Biológicas, Fisiológicas y Espaciales
   cognitive_load INT CHECK (cognitive_load BETWEEN 0 AND 3) DEFAULT 0,
   physical_load INT CHECK (physical_load BETWEEN 0 AND 3) DEFAULT 0,
-  energy_drain VARCHAR(20) DEFAULT 'normal', -- 'low', 'normal', 'high'
+  energy_drain energy_drain_type DEFAULT 'normal',
   location VARCHAR(100) DEFAULT 'Casa',
   
-  -- Parámetros de Metas Flotantes (Floating Deadlines)
+  -- Metadatos para Arquetipo floating_deadline
   deadline TIMESTAMPTZ,
   total_required_minutes INT,
   min_block_minutes INT DEFAULT 90,
   max_block_minutes INT DEFAULT 180,
   
-  -- Rutinas Elásticas y Descanso Inter-Sesión
-  split_variant VARCHAR(50),                -- Ej: 'pecho', 'espalda', 'piernas'
-  recovery_days_needed INT DEFAULT 1,       -- LagConstraint
-  preferred_time_window JSONB,
+  -- Metadatos para Arquetipo elastic_routine (LagConstraint)
+  split_variant VARCHAR(50),                   -- Identificador de variante (ej. 'torso', 'piernas')
+  recovery_days_needed INT DEFAULT 1,          -- Días de desfase biológico requerido
+  preferred_time_window JSONB,                 -- Rango horario predilecto {"start": "18:00", "end": "22:00"}
   
-  -- Tolerancia a Tardanzas (Punctuality Matrix)
-  max_lateness_minutes INT DEFAULT 0,       -- 0 min para trabajo y materias estrictas
+  -- Tolerancia a Tardanzas y Penalizaciones
+  max_lateness_minutes INT DEFAULT 0,          -- 0 = militar, >0 = tolerancia suave
   lateness_penalty_weight NUMERIC(4,2) DEFAULT 1.0,
   
-  -- Dimensión Económica
+  -- Dimensión Financiera (Moneda Local ARS)
   estimated_cost_ars NUMERIC(10,2) DEFAULT 0.0,
   
-  -- Sincronización Externa
+  -- Sincronización Externa (Google Calendar / iCal)
   google_event_id VARCHAR(255),
   sync_etag VARCHAR(255),
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 4. Parámetros de Configuración de Usuario (Consola de Perillas / params.ts)
+CREATE INDEX IF NOT EXISTS idx_events_user_time ON events(user_id, start_time, end_time);
+CREATE INDEX IF NOT EXISTS idx_events_category ON events(category_id);
+CREATE INDEX IF NOT EXISTS idx_events_google_id ON events(user_id, google_event_id);
+
+-- ----------------------------------------------------------------------------
+-- 4. TABLA: user_constraints (Registro de Restricciones del Constraint Registry)
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS user_constraints (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  rule_id VARCHAR(100) NOT NULL,               -- Ej: 'HC-03', 'HC-06', 'CUSTOM-01'
+  rule_type constraint_type_enum NOT NULL,     -- 'hard' o 'soft'
+  name VARCHAR(255) NOT NULL,
+  description TEXT,
+  is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  priority_weight NUMERIC(5,2) DEFAULT 1.0,    -- Ponderación en función soft de scoring
+  custom_params JSONB NOT NULL DEFAULT '{}'::jsonb, -- Umbrales y variables configurables
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(user_id, rule_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_constraints_user ON user_constraints(user_id);
+
+-- ----------------------------------------------------------------------------
+-- 5. TABLA: user_parameters (Consola Central de Perillas del Motor CSP / params.ts)
+-- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS user_parameters (
   user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  target_sleep_minutes INT DEFAULT 480,        -- 8 horas de sueño
-  night_threshold_time TIME DEFAULT '23:30',    -- Umbral de trasnoche
-  cognitive_landing_buffer_minutes INT DEFAULT 60, -- Aterrizaje post-evento pesado
-  wake_inertia_buffer_minutes INT DEFAULT 90,      -- Inercia al despertar desfasado
-  cannabis_buffer_min_minutes INT DEFAULT 120,     -- GHC-01 piso mínimo (convivencia familiar)
-  cannabis_buffer_ideal_minutes INT DEFAULT 240,   -- GHC-01 ideal
-  travel_safety_margin_minutes INT DEFAULT 10,
-  weekly_social_target_hours NUMERIC(4,1) DEFAULT 6.0,
-  weekly_budget_ars NUMERIC(10,2) DEFAULT 50000.0,
-  weight_academic NUMERIC(3,2) DEFAULT 1.0,
-  weight_social NUMERIC(3,2) DEFAULT 1.0,
-  weight_wellness NUMERIC(3,2) DEFAULT 1.0,
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  target_sleep_minutes INT NOT NULL DEFAULT 480,        -- 8 horas de sueño biológico
+  night_threshold_time TIME NOT NULL DEFAULT '23:30',   -- Umbral de disrupción nocturna
+  cognitive_landing_buffer_minutes INT NOT NULL DEFAULT 60, -- Aterrizaje post-trabajo/estudio
+  wake_inertia_buffer_minutes INT NOT NULL DEFAULT 90,      -- Inercia al despertar desfasado
+  cannabis_buffer_min_minutes INT NOT NULL DEFAULT 120,     -- GHC-01 piso mínimo de descenso
+  cannabis_buffer_ideal_minutes INT NOT NULL DEFAULT 240,   -- GHC-01 ventana ideal
+  travel_safety_margin_minutes INT NOT NULL DEFAULT 10,     -- Margen de seguridad sobre viajes
+  weekly_social_target_hours NUMERIC(4,1) NOT NULL DEFAULT 6.0, -- Cuota bolsa social
+  weekly_budget_ars NUMERIC(10,2) NOT NULL DEFAULT 50000.0, -- Límite semanal de salidas
+  weight_academic NUMERIC(3,2) NOT NULL DEFAULT 1.0,    -- Slider académico
+  weight_social NUMERIC(3,2) NOT NULL DEFAULT 1.0,      -- Slider social
+  weight_wellness NUMERIC(3,2) NOT NULL DEFAULT 1.0,    -- Slider bienestar
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 5. Matriz de Traslados Espaciales
+-- ----------------------------------------------------------------------------
+-- 6. TABLA: travel_matrix (Matriz Espacial de Tiempos de Traslado)
+-- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS travel_matrix (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   origin VARCHAR(100) NOT NULL,
   destination VARCHAR(100) NOT NULL,
   duration_minutes INT NOT NULL,
-  transport_mode VARCHAR(50) DEFAULT 'colectivo',
+  transport_mode VARCHAR(50) NOT NULL DEFAULT 'colectivo',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE(user_id, origin, destination)
 );
 
--- 6. Reglas de Auto-Mapeo Semántico (Google Calendar Triage)
+CREATE INDEX IF NOT EXISTS idx_travel_matrix_user ON travel_matrix(user_id);
+
+-- ----------------------------------------------------------------------------
+-- 7. TABLA: auto_mapping_rules (Reglas del Wizard de Triage Semántico de Google Calendar)
+-- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS auto_mapping_rules (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-  pattern VARCHAR(100) NOT NULL,
-  match_type VARCHAR(20) DEFAULT 'contains',
-  assigned_category_id UUID REFERENCES categories(id) ON DELETE CASCADE,
-  default_is_locked BOOLEAN DEFAULT TRUE,
-  default_location VARCHAR(100) DEFAULT 'Casa',
-  default_cognitive_load INT DEFAULT 0,
-  default_max_lateness INT DEFAULT 0,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  pattern VARCHAR(150) NOT NULL,               -- Ej: 'Casino', 'Redes', 'Dentista'
+  match_type match_type_enum NOT NULL DEFAULT 'contains',
+  assigned_category_id UUID NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+  default_is_locked BOOLEAN NOT NULL DEFAULT TRUE,
+  default_location VARCHAR(100) NOT NULL DEFAULT 'Casa',
+  default_cognitive_load INT NOT NULL DEFAULT 0,
+  default_max_lateness INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 7. Tokens para Live Sync Webcal Feed (iCal seguro)
+CREATE INDEX IF NOT EXISTS idx_auto_mapping_user ON auto_mapping_rules(user_id);
+
+-- ----------------------------------------------------------------------------
+-- 8. TABLA: sync_tokens (Tokens de Suscripción Webcal Feed RFC 5545)
+-- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS calendar_sync_tokens (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   token VARCHAR(64) UNIQUE NOT NULL,
-  is_active BOOLEAN DEFAULT TRUE,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_accessed_at TIMESTAMPTZ
 );
 
--- Políticas de Seguridad RLS
+CREATE INDEX IF NOT EXISTS idx_sync_tokens_token ON calendar_sync_tokens(token);
+
+-- ----------------------------------------------------------------------------
+-- 9. SEGURIDAD: ROW LEVEL SECURITY (RLS) EN TODAS LAS TABLAS
+-- ----------------------------------------------------------------------------
 ALTER TABLE categories ENABLE ROW LEVEL SECURITY;
 ALTER TABLE events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_constraints ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_parameters ENABLE ROW LEVEL SECURITY;
 ALTER TABLE travel_matrix ENABLE ROW LEVEL SECURITY;
 ALTER TABLE auto_mapping_rules ENABLE ROW LEVEL SECURITY;
@@ -142,6 +204,9 @@ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Users manage own events') THEN
     CREATE POLICY "Users manage own events" ON events FOR ALL USING (auth.uid() = user_id);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Users manage own constraints') THEN
+    CREATE POLICY "Users manage own constraints" ON user_constraints FOR ALL USING (auth.uid() = user_id);
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Users manage own parameters') THEN
     CREATE POLICY "Users manage own parameters" ON user_parameters FOR ALL USING (auth.uid() = user_id);

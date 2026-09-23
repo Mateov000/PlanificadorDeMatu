@@ -1,7 +1,10 @@
-import { Event } from '@/types/event';
+import { Event, ArchetypeType } from '@/types/event';
 import { ConstraintParams, TravelMatrixLookup } from '@/types/parameters';
 import { WeatherForecast } from '@/types/weather';
 
+/**
+ * Contexto unificado de evaluación para el motor de restricciones (CSP)
+ */
 export interface ConstraintContext {
   /** Todos los eventos candidatos bajo evaluación */
   candidateEvents: Event[];
@@ -39,13 +42,20 @@ export interface HardValidationResult {
 }
 
 /**
- * Regla de Restricción Dura (Hard Constraint - Inviolable)
+ * Interfaz genérica de evaluador de restricciones (Contrato Base)
  */
-export interface HardConstraintRule {
+export interface ConstraintEvaluator<TContext = ConstraintContext> {
   readonly id: string;
   readonly name: string;
   readonly description: string;
   enabled: boolean;
+}
+
+/**
+ * Regla de Restricción Dura (Hard Constraint - Inviolable)
+ */
+export interface HardConstraintRule extends ConstraintEvaluator<ConstraintContext> {
+  readonly type?: 'hard';
   /**
    * Evalúa la agenda candidata. Si retorna satisfied: false, el plan es matemáticamente
    * inválido (penalización infinita) y se poda inmediatamente en el árbol de búsqueda.
@@ -61,14 +71,11 @@ export type SoftRuleCategory = 'academic' | 'social' | 'wellness' | 'logistics';
 /**
  * Regla de Restricción Blanda (Soft Constraint - Optimización Aritmética)
  */
-export interface SoftConstraintRule {
-  readonly id: string;
-  readonly name: string;
-  readonly description: string;
+export interface SoftConstraintRule extends ConstraintEvaluator<ConstraintContext> {
+  readonly type?: 'soft';
   readonly category: SoftRuleCategory;
   /** Peso base asignado a la regla (1.0 por defecto) */
   defaultWeight: number;
-  enabled: boolean;
   /**
    * Evalúa la agenda candidata y retorna una penalización normalizada entre 0.0 (perfecto)
    * y 1.0 (máxima penalización admisible sin ser inválida).
@@ -79,14 +86,44 @@ export interface SoftConstraintRule {
 }
 
 /**
- * Contrato del Registro Central de Restricciones
+ * Parámetros para el mecanismo genérico LagConstraint<T>
+ */
+export interface LagConstraintConfig<T = string> {
+  variantA: T;
+  variantB: T;
+  minRecoveryDays: number;
+}
+
+/**
+ * Parámetros para el mecanismo genérico ScheduleDisruptor
+ */
+export interface ScheduleDisruptorConfig {
+  nightThresholdHour: number; // Ej: 23.5 (23:30 hs)
+  targetSleepMinutes: number;  // Ej: 480 (8 horas)
+  travelSafetyMarginMinutes: number;
+}
+
+/**
+ * Parámetros para el mecanismo genérico GraduatedConstraint
+ */
+export interface GraduatedConstraintConfig {
+  minThresholdMinutes: number;
+  idealThresholdMinutes: number;
+  penaltyWeight: number;
+}
+
+/**
+ * Contrato del Registro Central de Restricciones (Plugin Registry)
  */
 export interface ConstraintRegistryContract {
   hardRules: HardConstraintRule[];
   softRules: SoftConstraintRule[];
   registerHardRule: (rule: HardConstraintRule) => void;
   registerSoftRule: (rule: SoftConstraintRule) => void;
+  unregisterRule?: (id: string) => void;
   setRuleEnabled: (id: string, enabled: boolean) => void;
   getHardRules: () => HardConstraintRule[];
   getSoftRules: () => SoftConstraintRule[];
+  evaluateHardConstraints?: (candidate: Event[], context: ConstraintContext) => HardValidationResult;
+  evaluateSoftConstraints?: (candidate: Event[], context: ConstraintContext) => number;
 }
