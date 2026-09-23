@@ -1,6 +1,6 @@
 import { Event } from '@/types/event';
 import { ConstraintContext, HardConstraintRule } from '@/constraints/contracts';
-import { TimeSlot, SLOTS_PER_HOUR, SLOTS_PER_DAY } from './timeDomain';
+import { TimeSlot, SLOTS_PER_HOUR, SLOTS_PER_DAY, isSlotRangeFree } from './timeDomain';
 
 export interface EventDomain {
   eventId: string;
@@ -25,6 +25,9 @@ export function pruneDomainsAC3(
 
     // Dominio inicial: todos los slots libres donde quepa el evento
     for (let slotIdx = 0; slotIdx <= weekSlots.length - neededSlots; slotIdx++) {
+      // Poda 0 inmediata: si el rango de slots ya está ocupado en la cuadrícula, descartar
+      if (!isSlotRangeFree(weekSlots, slotIdx, neededSlots)) continue;
+
       const candidateStart = weekSlots[slotIdx].start;
       const candidateEnd = new Date(candidateStart.getTime() + event.durationMinutes * 60 * 1000);
 

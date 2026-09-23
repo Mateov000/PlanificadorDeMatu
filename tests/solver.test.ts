@@ -290,4 +290,249 @@ describe('Solver & Panic Button Performance', () => {
     expect(calsoftRescheduled).toBeDefined();
     expect(calsoftRescheduled?.startTime?.toString()).not.toBe(urgentPlan.startTime?.toString());
   });
+
+  it('Paso 1.1: splits a 6-hour floating study goal into continuous blocks between 90 and 180 min', () => {
+    const context = createMockContext();
+    const weekStart = new Date('2026-09-21T00:00:00Z');
+
+    const floatingGoal: Event = {
+      id: 'study-redes-6h',
+      title: 'Estudio Redes de Computadoras',
+      durationMinutes: 360,
+      totalRequiredMinutes: 360,
+      minBlockMinutes: 90,
+      maxBlockMinutes: 180,
+      isFloating: true,
+      deadline: new Date('2026-09-25T20:00:00Z'), // Viernes 20hs
+      cognitiveLoad: 3,
+      physicalLoad: 0,
+      energyDrain: 'normal',
+      location: 'Casa',
+    };
+
+    const result = solveSchedule([floatingGoal], context, weekStart);
+
+    expect(result.success).toBe(true);
+    // Debe haber generado entre 3 y 4 bloques
+    expect(result.schedule.length).toBeGreaterThanOrEqual(2);
+    expect(result.schedule.length).toBeLessThanOrEqual(4);
+
+    // Ningún bloque debe ser menor a minBlockMinutes (90 min)
+    for (const block of result.schedule) {
+      expect(block.durationMinutes).toBeGreaterThanOrEqual(90);
+      expect(block.durationMinutes).toBeLessThanOrEqual(180);
+      expect(block.startTime).toBeDefined();
+      expect(block.endTime).toBeDefined();
+    }
+  });
+
+  it('Paso 1.2: Spatial Clustering gives lower penalty (better score) to chained venues than rebounding home', async () => {
+    const context = createMockContext();
+    const { sc07_spatialClusteringRule } = await import('../src/constraints/soft/SC07_SpatialClustering');
+
+    // Escenario A: Encadenado directo Facultad (14-16) -> Gimnasio (16:30-17:45) -> Casa
+    const chainedSchedule: Event[] = [
+      {
+        id: 'class-unmdp',
+        title: 'Cursada Facultad',
+        startTime: new Date('2026-09-24T14:00:00Z'),
+        endTime: new Date('2026-09-24T16:00:00Z'),
+        durationMinutes: 120,
+        cognitiveLoad: 2,
+        physicalLoad: 0,
+        energyDrain: 'normal',
+        location: 'Facultad',
+      },
+      {
+        id: 'gym-direct',
+        title: 'Gimnasio',
+        startTime: new Date('2026-09-24T16:30:00Z'),
+        endTime: new Date('2026-09-24T17:45:00Z'),
+        durationMinutes: 75,
+        cognitiveLoad: 0,
+        physicalLoad: 2,
+        energyDrain: 'high',
+        location: 'Gimnasio',
+      },
+    ];
+
+    // Escenario B: Rebote innecesario Facultad (14-16) -> Casa breve (16:30-17:00) -> Gimnasio (17:30-18:45)
+    const reboundSchedule: Event[] = [
+      {
+        id: 'class-unmdp',
+        title: 'Cursada Facultad',
+        startTime: new Date('2026-09-24T14:00:00Z'),
+        endTime: new Date('2026-09-24T16:00:00Z'),
+        durationMinutes: 120,
+        cognitiveLoad: 2,
+        physicalLoad: 0,
+        energyDrain: 'normal',
+        location: 'Facultad',
+      },
+      {
+        id: 'casa-brief',
+        title: 'Parada en Casa',
+        startTime: new Date('2026-09-24T16:30:00Z'),
+        endTime: new Date('2026-09-24T17:00:00Z'),
+        durationMinutes: 30,
+        cognitiveLoad: 0,
+        physicalLoad: 0,
+        energyDrain: 'low',
+        location: 'Casa',
+      },
+      {
+        id: 'gym-rebound',
+        title: 'Gimnasio',
+        startTime: new Date('2026-09-24T17:30:00Z'),
+        endTime: new Date('2026-09-24T18:45:00Z'),
+        durationMinutes: 75,
+        cognitiveLoad: 0,
+        physicalLoad: 2,
+        energyDrain: 'high',
+        location: 'Gimnasio',
+      },
+    ];
+
+    const penaltyChained = sc07_spatialClusteringRule.evaluate(chainedSchedule, context);
+    const penaltyRebound = sc07_spatialClusteringRule.evaluate(reboundSchedule, context);
+
+    expect(penaltyChained).toBeLessThan(penaltyRebound);
+    expect(penaltyChained).toBe(0);
+  });
+
+  it('Paso 1.3: Weather Arbitrage penalizes studying indoors on golden sunny days and rewards study during storms', async () => {
+    const { sc03_weatherArbitrageRule } = await import('../src/constraints/soft/SC03_WeatherArbitrage');
+
+    const mockWeather = [
+      // Sábado con temporal SE (confort 20)
+      {
+        timestamp: '2026-09-26T15:00:00Z',
+        temperatureC: 11,
+        windSpeedKmh: 42,
+        windDirectionDeg: 135,
+        isSoutheastStorm: true,
+        precipitationMm: 8.5,
+        comfortScore: 20,
+      },
+      // Domingo soleado costero (confort 85)
+      {
+        timestamp: '2026-09-27T15:00:00Z',
+        temperatureC: 22,
+        windSpeedKmh: 10,
+        windDirectionDeg: 30,
+        isSoutheastStorm: false,
+        precipitationMm: 0,
+        comfortScore: 85,
+      },
+    ];
+
+    const contextWithWeather: ConstraintContext = {
+      ...createMockContext(),
+      weather: mockWeather,
+    };
+
+    // Plan 1: Estudiar el sábado de temporal en Casa
+    const stormyStudyPlan: Event[] = [
+      {
+        id: 'study-storm',
+        title: 'Estudio CalSoft',
+        startTime: new Date('2026-09-26T15:00:00Z'),
+        endTime: new Date('2026-09-26T17:00:00Z'),
+        durationMinutes: 120,
+        cognitiveLoad: 2,
+        physicalLoad: 0,
+        energyDrain: 'normal',
+        location: 'Casa',
+      },
+    ];
+
+    // Plan 2: Estudiar el domingo soleado en Casa (desperdiciando la tarde costera)
+    const sunnyStudyPlan: Event[] = [
+      {
+        id: 'study-sunny',
+        title: 'Estudio CalSoft',
+        startTime: new Date('2026-09-27T15:00:00Z'),
+        endTime: new Date('2026-09-27T17:00:00Z'),
+        durationMinutes: 120,
+        cognitiveLoad: 2,
+        physicalLoad: 0,
+        energyDrain: 'normal',
+        location: 'Casa',
+      },
+    ];
+
+    const penaltyStorm = sc03_weatherArbitrageRule.evaluate(stormyStudyPlan, contextWithWeather);
+    const penaltySunny = sc03_weatherArbitrageRule.evaluate(sunnyStudyPlan, contextWithWeather);
+
+    // Estudiar durante el temporal tiene penalización 0 (óptimo), mientras que en el día soleado es penalizado
+    expect(penaltyStorm).toBe(0);
+    expect(penaltySunny).toBeGreaterThan(0);
+
+    const explanation = sc03_weatherArbitrageRule.explainScore?.(stormyStudyPlan, contextWithWeather);
+    expect(explanation).toContain('temporal/mal clima');
+  });
+
+  it('Paso 1.4: dismissAndRepurposeSlot removes social slot and reallocates study in under 50ms with parametric explanation', async () => {
+    const { useScheduleStore } = await import('../src/lib/store/scheduleStore');
+
+    // Inicializar estado con un evento social y una tarea flotante de estudio
+    const socialEvent: Event = {
+      id: 'social-friday-drinks',
+      categoryId: 'cat-social',
+      title: 'Cerveza con Amigos',
+      startTime: new Date('2026-09-25T19:00:00Z'),
+      endTime: new Date('2026-09-25T21:00:00Z'),
+      durationMinutes: 120,
+      cognitiveLoad: 0,
+      physicalLoad: 0,
+      energyDrain: 'low',
+      location: 'Cervecería',
+    };
+
+    const studyEvent: Event = {
+      id: 'study-floating-dense',
+      categoryId: 'cat-study-float',
+      title: 'Estudio Redes de Computadoras',
+      durationMinutes: 120,
+      isFloating: true,
+      deadline: new Date('2026-09-27T20:00:00Z'),
+      cognitiveLoad: 3,
+      physicalLoad: 0,
+      energyDrain: 'normal',
+      location: 'Casa',
+    };
+
+    useScheduleStore.setState({
+      events: [socialEvent, studyEvent],
+      proposedSchedule: null,
+      activeDiff: null,
+      isDiffModalOpen: false,
+    });
+
+    const startTime = performance.now();
+    useScheduleStore.getState().dismissAndRepurposeSlot('social-friday-drinks');
+    const elapsed = performance.now() - startTime;
+
+    expect(elapsed).toBeLessThan(50); // Criterio estricto de latencia < 50ms
+
+    const state = useScheduleStore.getState();
+    expect(state.isDiffModalOpen).toBe(true);
+    expect(state.proposedSchedule).toBeDefined();
+
+    // El evento social ya no está en la propuesta
+    const socialInProposal = state.proposedSchedule?.find((e) => e.id === 'social-friday-drinks');
+    expect(socialInProposal).toBeUndefined();
+
+    // El estudio fue asignado
+    const studyInProposal = state.proposedSchedule?.find((e) => e.id === 'study-floating-dense');
+    expect(studyInProposal).toBeDefined();
+    expect(studyInProposal?.startTime).toBeDefined();
+
+    // El diff tiene la explicación paramétrica de descarte y reutilización
+    expect(state.activeDiff?.items.length).toBeGreaterThan(0);
+    const repurposedItem = state.activeDiff?.items.find((item) => item.causeCode === 'DISMISS_REPURPOSE');
+    expect(repurposedItem).toBeDefined();
+    expect(repurposedItem?.explanation).toContain('capitalizando el tiempo libre');
+  });
 });
+

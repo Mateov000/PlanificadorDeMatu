@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Event } from '@/types/event';
-import { Lock, Waves, Shield, Zap, MapPin } from 'lucide-react';
+import { Lock, Waves, Shield, Zap, MapPin, Sparkles } from 'lucide-react';
 
 interface EventBlockProps {
   event: Event;
@@ -10,6 +10,7 @@ interface EventBlockProps {
   heightPx: number;
   color?: string;
   onClick?: () => void;
+  onDismissRepurpose?: () => void;
 }
 
 function formatTime(d?: Date | string): string {
@@ -24,6 +25,7 @@ export const EventBlock: React.FC<EventBlockProps> = ({
   heightPx,
   color = '#3b82f6',
   onClick,
+  onDismissRepurpose,
 }) => {
   const isShort = heightPx < 45;
 
@@ -62,10 +64,38 @@ export const EventBlock: React.FC<EventBlockProps> = ({
         )}
       </div>
 
-      {!isShort && event.location && (
-        <div className="event-location" style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
-          <MapPin size={10} />
-          <span>{event.location}</span>
+      {!isShort && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px' }}>
+          {event.location ? (
+            <div className="event-location" style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+              <MapPin size={10} />
+              <span>{event.location}</span>
+            </div>
+          ) : <div />}
+
+          {onDismissRepurpose && (event.categoryId === 'cat-social' || event.category?.archetype === 'social_flexible') && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDismissRepurpose();
+              }}
+              style={{
+                background: 'rgba(236, 72, 153, 0.25)',
+                border: '1px solid rgba(236, 72, 153, 0.5)',
+                borderRadius: '4px',
+                color: '#fbcfe8',
+                fontSize: '0.65rem',
+                padding: '1px 5px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '3px',
+              }}
+              title="Descartar este plan social y reutilizar el tiempo para adelantar estudio o gimnasio"
+            >
+              <Sparkles size={10} /> Reutilizar
+            </button>
+          )}
         </div>
       )}
     </div>

@@ -27,12 +27,15 @@ export const sc03_weatherArbitrageRule: SoftConstraintRule = {
     const outdoorEvents = candidate.filter(
       (e) => e.location !== 'Casa' && e.category?.archetype === 'social_flexible' && e.startTime
     );
+    const studyEvents = candidate.filter(
+      (e) => (e.location === 'Casa' || !e.location) && e.cognitiveLoad >= 2 && e.startTime && !e.isLocked
+    );
 
+    // 1. Evaluar planes outdoor con mal clima (penalización severa)
     for (const event of outdoorEvents) {
       const start = parseDate(event.startTime);
       if (!start) continue;
 
-      // Buscar pronóstico para la hora del evento
       const forecast = weather.find((w) => {
         const fTime = new Date(w.timestamp);
         return (
@@ -44,13 +47,55 @@ export const sc03_weatherArbitrageRule: SoftConstraintRule = {
       });
 
       if (forecast) {
-        // Si hay temporal del Sudeste o confort muy bajo (< 40)
         if (forecast.isSoutheastStorm || forecast.comfortScore < 40) {
-          penalty += 0.8; // Penalizar fuertemente plan outdoor con temporal
+          penalty += 0.8;
         }
       }
     }
 
-    return outdoorEvents.length > 0 ? Math.min(1.0, penalty / outdoorEvents.length) : 0;
+    // 2. Arbitraje de estudio: incentivar estudio durante temporal y desincentivar en días dorados (> 75)
+    for (const event of studyEvents) {
+      const start = parseDate(event.startTime);
+      if (!start) continue;
+
+      const forecast = weather.find((w) => {
+        const fTime = new Date(w.timestamp);
+        return (
+          fTime.getFullYear() === start.getFullYear() &&
+          fTime.getMonth() === start.getMonth() &&
+          fTime.getDate() === start.getDate() &&
+          fTime.getHours() === start.getHours()
+        );
+      });
+
+      if (forecast) {
+        if (forecast.comfortScore > 75) {
+          // Penalizar estudiar adentro en momento de clima costero óptimo
+          penalty += 0.4;
+        }
+        // Si el confort es < 40 (temporal), penalty = 0 (aprovechamiento óptimo de encierro)
+      }
+    }
+
+    const totalAssessed = outdoorEvents.length + studyEvents.length;
+    return totalAssessed > 0 ? Math.min(1.0, penalty / totalAssessed) : 0;
+  },
+
+  explainScore: (candidate: Event[], context: ConstraintContext): string | null => {
+    const { weather } = context;
+    if (!weather || weather.length === 0) return null;
+
+    const badWeatherStudy = candidate.filter((e) => {
+      if (e.cognitiveLoad < 2 || !e.startTime) return false;
+      const start = parseDate(e.startTime);
+      if (!start) return false;
+      const f = weather.find((w) => new Date(w.timestamp).getHours() === start.getHours() && new Date(w.timestamp).getDate() === start.getDate());
+      return f && (f.isSoutheastStorm || f.comfortScore < 40);
+    });
+
+    if (badWeatherStudy.length > 0) {
+      return `Se concentraron ${badWeatherStudy.length} bloque(s) de estudio bajo techo durante ventanas de temporal/mal clima, liberando días de buen tiempo.`;
+    }
+    return null;
   },
 };

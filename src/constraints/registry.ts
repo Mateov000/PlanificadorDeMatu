@@ -16,6 +16,7 @@ import { sc03_weatherArbitrageRule } from './soft/SC03_WeatherArbitrage';
 import { sc04_punctualityPenaltyRule } from './soft/SC04_PunctualityPenalty';
 import { sc05_socialPoolBalanceRule } from './soft/SC05_SocialPoolBalance';
 import { sc06_budgetOptimizationRule } from './soft/SC06_BudgetOptimization';
+import { sc07_spatialClusteringRule } from './soft/SC07_SpatialClustering';
 
 /**
  * Registro Central de Restricciones (Patrón Registry)
@@ -39,6 +40,7 @@ class ConstraintRegistry implements ConstraintRegistryContract {
     sc04_punctualityPenaltyRule,
     sc05_socialPoolBalanceRule,
     sc06_budgetOptimizationRule,
+    sc07_spatialClusteringRule,
   ];
 
   registerHardRule(rule: HardConstraintRule): void {

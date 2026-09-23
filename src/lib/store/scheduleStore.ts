@@ -125,6 +125,7 @@ interface ScheduleStore {
   // Métodos del Solver CSP
   recalculateSchedule: () => void;
   triggerPanicEviction: (urgentPlan: Event) => void;
+  dismissAndRepurposeSlot: (eventId: string) => void;
   applyProposedSchedule: () => void;
   discardProposedSchedule: () => void;
 }
@@ -217,6 +218,46 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
       activeDiff: diff,
       isDiffModalOpen: true,
       isPanicModalOpen: false,
+    });
+  },
+
+  dismissAndRepurposeSlot: (eventId: string) => {
+    const { events, params, metaSliders, weather } = get();
+    const targetEvent = events.find((e) => e.id === eventId);
+    if (!targetEvent) return;
+
+    // 1. Eliminar la reserva social descartada
+    const remainingEvents = events.filter((e) => e.id !== eventId);
+
+    // 2. Liberar eventos flotantes para que puedan adelantar su horario en el hueco recién liberado
+    const poolToResolve = remainingEvents.map((e) => {
+      if (e.isFloating && !e.isLocked) {
+        return {
+          ...e,
+          startTime: undefined,
+          endTime: undefined,
+        };
+      }
+      return e;
+    });
+
+    const context: ConstraintContext = {
+      candidateEvents: poolToResolve,
+      originalSchedule: events,
+      params,
+      travelMatrix: createTravelMatrixLookup(),
+      weather,
+      currentTime: new Date(),
+      metaSliders,
+    };
+
+    const result = solveSchedule(poolToResolve, context);
+    const diff = calculateScheduleDiff(events, result.schedule, result.executionTimeMs, 'DISMISS_REPURPOSE');
+
+    set({
+      proposedSchedule: result.schedule,
+      activeDiff: diff,
+      isDiffModalOpen: true,
     });
   },
 

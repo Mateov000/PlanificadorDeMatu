@@ -14,7 +14,7 @@ function parseDate(d?: Date | string): Date | null {
 }
 
 export const TimeGridCalendar: React.FC = () => {
-  const { events, categories } = useScheduleStore();
+  const { events, categories, dismissAndRepurposeSlot } = useScheduleStore();
 
   // Generar los 7 días de la semana actual partiendo del lunes
   const weekDays = useMemo(() => {
@@ -140,6 +140,7 @@ export const TimeGridCalendar: React.FC = () => {
                     topPx={topPx}
                     heightPx={heightPx}
                     color={color}
+                    onDismissRepurpose={() => dismissAndRepurposeSlot(ev.id)}
                   />
                 );
               })}

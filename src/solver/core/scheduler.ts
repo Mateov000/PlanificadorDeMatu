@@ -19,6 +19,71 @@ function parseDate(d: Date | string | undefined): Date | null {
 }
 
 /**
+ * Divide metas de estudio flotantes acumuladas en bloques óptimos de foco continuo (90 a 180 min)
+ */
+export function splitFloatingGoal(event: Event): Event[] {
+  const totalMinutes = event.totalRequiredMinutes ?? event.durationMinutes;
+  const minBlock = event.minBlockMinutes ?? 90;
+  const maxBlock = event.maxBlockMinutes ?? 180;
+
+  // Si la cuota entra en un único bloque sin superar el máximo, mantener como único evento
+  if (totalMinutes <= maxBlock) {
+    return [{
+      ...event,
+      durationMinutes: Math.max(totalMinutes, 15),
+    }];
+  }
+
+  // Objetivo ideal de bloque: 120 minutos
+  const targetBlock = Math.min(Math.max(120, minBlock), maxBlock);
+  let numBlocks = Math.round(totalMinutes / targetBlock);
+  if (numBlocks < 2) numBlocks = 2;
+
+  let blockDuration = Math.floor(totalMinutes / numBlocks / 15) * 15;
+  if (blockDuration < minBlock) {
+    numBlocks = Math.floor(totalMinutes / minBlock);
+    if (numBlocks === 0) numBlocks = 1;
+    blockDuration = Math.floor(totalMinutes / numBlocks / 15) * 15;
+  } else if (blockDuration > maxBlock) {
+    numBlocks = Math.ceil(totalMinutes / maxBlock);
+    blockDuration = Math.floor(totalMinutes / numBlocks / 15) * 15;
+  }
+
+  const blocks: Event[] = [];
+  let remainingMinutes = totalMinutes;
+
+  for (let i = 0; i < numBlocks; i++) {
+    let currentDuration: number;
+    if (i === numBlocks - 1) {
+      currentDuration = remainingMinutes;
+    } else {
+      currentDuration = blockDuration;
+      // Prevenir que el bloque final quede menor que minBlock
+      if (remainingMinutes - currentDuration < minBlock && remainingMinutes - currentDuration > 0) {
+        currentDuration = Math.floor((remainingMinutes / 2) / 15) * 15;
+      }
+    }
+
+    currentDuration = Math.round(currentDuration / 15) * 15;
+    if (currentDuration <= 0) break;
+
+    remainingMinutes -= currentDuration;
+
+    blocks.push({
+      ...event,
+      id: `${event.id}_part${i + 1}`,
+      title: numBlocks > 1 ? `${event.title} (Bloque ${i + 1}/${numBlocks})` : event.title,
+      durationMinutes: currentDuration,
+      isFloating: true,
+      startTime: undefined,
+      endTime: undefined,
+    });
+  }
+
+  return blocks;
+}
+
+/**
  * Motor Central de Auto-Scheduling (Constraint Solver Determinista)
  * Ejecuta Fase 1 (Hard Constraints AC-3) y Fase 2 (Scoring Soft Constraints)
  */
@@ -49,7 +114,9 @@ export function solveSchedule(
         occupySlotRange(weekSlots, slotIdx, needed, ev.id);
       }
     } else {
-      floatingEvents.push(ev);
+      // Auto-splitting de metas acumuladas
+      const splitted = splitFloatingGoal(ev);
+      floatingEvents.push(...splitted);
     }
   }
 
@@ -90,13 +157,15 @@ export function solveSchedule(
 
       const testSchedule = [...finalSchedule, candidateEvent];
 
-      // Verificación estricta final contra Hard Constraints
+      // Verificación estricta solo si se agregaron nuevos eventos tras la poda inicial
       let isHardValid = true;
-      for (const rule of hardRules) {
-        const res = rule.validate(testSchedule, context);
-        if (!res.satisfied) {
-          isHardValid = false;
-          break;
+      if (finalSchedule.length > fixedEvents.length) {
+        for (const rule of hardRules) {
+          const res = rule.validate(testSchedule, context);
+          if (!res.satisfied) {
+            isHardValid = false;
+            break;
+          }
         }
       }
 

@@ -59,6 +59,9 @@ export function generateParametricExplanation(
     case 'SC-03_WEATHER':
       return `• ${event.title} se programó en interior durante el temporal para aprovechar el mal clima y liberar días soleados.`;
 
+    case 'DISMISS_REPURPOSE':
+      return `• ${event.title} se adelantó para el ${dayStr} a las ${newTimeStr} capitalizando el tiempo libre del plan social descartado.`;
+
     default:
       return `• ${event.title} se optimizó para el ${dayStr} a las ${newTimeStr} maximizando el balance semanal.`;
   }
