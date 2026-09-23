@@ -988,5 +988,123 @@ describe('Solver & Panic Button Performance', () => {
   });
 });
 
+describe('Periodicidad y Eventos Recurrentes Personalizables', () => {
+  it('genera instancias diarias respetando intervalo y conteo', async () => {
+    const { generateRecurringInstances } = await import('../src/lib/calendar/recurrence');
+    const baseEvent: Event = {
+      id: 'evt-daily-parent',
+      title: 'Meditación Matutina',
+      startTime: new Date('2026-09-24T07:00:00'),
+      endTime: new Date('2026-09-24T07:30:00'),
+      durationMinutes: 30,
+      cognitiveLoad: 0,
+      physicalLoad: 0,
+      energyDrain: 'low',
+      location: 'Casa',
+      recurrence: {
+        frequency: 'daily',
+        interval: 2,
+        count: 4,
+      },
+    };
+
+    const instances = generateRecurringInstances(baseEvent, baseEvent.recurrence!);
+    expect(instances.length).toBe(3); // count total es 4 (el base cuenta como 1, + 3 instancias)
+    
+    expect(instances[0].recurrenceParentId).toBe('evt-daily-parent');
+    expect(instances[0].isRecurringInstance).toBe(true);
+
+    const d1 = new Date(instances[0].startTime!);
+    expect(d1.getDate()).toBe(26); // +2 días
+
+    const d2 = new Date(instances[1].startTime!);
+    expect(d2.getDate()).toBe(28); // +4 días
+
+    const d3 = new Date(instances[2].startTime!);
+    expect(d3.getDate()).toBe(30); // +6 días
+  });
+
+  it('genera repeticiones semanales en días específicos (ej. Lunes, Miércoles, Viernes)', async () => {
+    const { generateRecurringInstances } = await import('../src/lib/calendar/recurrence');
+    // Supongamos un Lunes (2026-09-21)
+    const baseEvent: Event = {
+      id: 'evt-gym-split',
+      title: 'Entrenamiento Gimnasio',
+      startTime: new Date('2026-09-21T18:00:00'),
+      endTime: new Date('2026-09-21T19:30:00'),
+      durationMinutes: 90,
+      cognitiveLoad: 1,
+      physicalLoad: 3,
+      energyDrain: 'high',
+      location: 'Gimnasio',
+      recurrence: {
+        frequency: 'weekly',
+        interval: 1,
+        daysOfWeek: [1, 3, 5], // Lunes, Miércoles, Viernes
+        count: 6,
+      },
+    };
+
+    const instances = generateRecurringInstances(baseEvent, baseEvent.recurrence!);
+    // 6 repeticiones en total: base (Lun 21) + 5 instancias
+    expect(instances.length).toBe(5);
+
+    // Deben caer en Miércoles 23, Viernes 25, Lunes 28, Miércoles 30, Viernes 2 Oct
+    const daysOfWeekGenerated = instances.map((inst) => new Date(inst.startTime!).getDay());
+    // JS getDay(): 1=Mon, 3=Wed, 5=Fri
+    expect(daysOfWeekGenerated).toEqual([3, 5, 1, 3, 5]);
+  });
+
+  it('permite eliminar una ocurrencia individual o la serie completa desde el store', async () => {
+    const { useScheduleStore } = await import('../src/lib/store/scheduleStore');
+    const store = useScheduleStore.getState();
+
+    const parentId = 'evt-recurrent-test-parent';
+    const baseEvent: Event = {
+      id: parentId,
+      title: 'Clase de Programación Concurrente',
+      startTime: new Date('2026-10-05T10:00:00'),
+      endTime: new Date('2026-10-05T12:00:00'),
+      durationMinutes: 120,
+      cognitiveLoad: 2,
+      physicalLoad: 0,
+      energyDrain: 'normal',
+      location: 'Facultad',
+      recurrence: {
+        frequency: 'weekly',
+        interval: 1,
+        count: 3,
+      },
+    };
+
+    // Agregar evento recurrente expande las instancias
+    store.addEvent(baseEvent);
+
+    const allEvents = useScheduleStore.getState().events;
+    const parent = allEvents.find((e) => e.id === parentId);
+    const children = allEvents.filter((e) => e.recurrenceParentId === parentId);
+
+    expect(parent).toBeDefined();
+    expect(children.length).toBe(2);
+
+    // Eliminar sólo una de las ocurrencias hijas
+    const singleChildId = children[0].id;
+    store.deleteEvent(singleChildId, false);
+
+    const afterSingleDelete = useScheduleStore.getState().events;
+    expect(afterSingleDelete.find((e) => e.id === singleChildId)).toBeUndefined();
+    expect(afterSingleDelete.find((e) => e.id === parentId)).toBeDefined();
+    expect(afterSingleDelete.find((e) => e.id === children[1].id)).toBeDefined();
+
+    // Eliminar toda la serie a través de cualquier miembro de la serie
+    store.deleteEvent(parentId, true);
+
+    const afterSeriesDelete = useScheduleStore.getState().events;
+    expect(afterSeriesDelete.find((e) => e.id === parentId)).toBeUndefined();
+    expect(afterSeriesDelete.find((e) => e.id === children[1].id)).toBeUndefined();
+  });
+});
+
+
 
 

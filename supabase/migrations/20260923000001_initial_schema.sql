@@ -86,6 +86,10 @@ CREATE TABLE IF NOT EXISTS events (
   -- Dimensión Financiera (Moneda Local ARS)
   estimated_cost_ars NUMERIC(10,2) DEFAULT 0.0,
   
+  -- Periodicidad y Recurrencia Personalizable
+  recurrence_rule JSONB,                       -- Regla {"frequency": "weekly", "interval": 1, "daysOfWeek": [1,3,5], "count": 10}
+  recurrence_parent_id UUID REFERENCES events(id) ON DELETE CASCADE, -- ID del evento padre de la serie
+
   -- Sincronización Externa (Google Calendar / iCal)
   google_event_id VARCHAR(255),
   sync_etag VARCHAR(255),
@@ -97,6 +101,7 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS idx_events_user_time ON events(user_id, start_time, end_time);
 CREATE INDEX IF NOT EXISTS idx_events_category ON events(category_id);
 CREATE INDEX IF NOT EXISTS idx_events_google_id ON events(user_id, google_event_id);
+CREATE INDEX IF NOT EXISTS idx_events_recurrence_parent ON events(recurrence_parent_id);
 
 -- ----------------------------------------------------------------------------
 -- 4. TABLA: user_constraints (Registro de Restricciones del Constraint Registry)

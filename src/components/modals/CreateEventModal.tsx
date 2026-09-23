@@ -2,8 +2,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { useScheduleStore } from '@/lib/store/scheduleStore';
-import { Event } from '@/types/event';
-import { X, Calendar, Clock, MapPin, Brain, Shield, Lock, AlertTriangle, Cannabis, Sparkles } from 'lucide-react';
+import { Event, RecurrenceRule, RecurrenceFrequency } from '@/types/event';
+import { X, Calendar, Clock, MapPin, Brain, Shield, Lock, AlertTriangle, Cannabis, Sparkles, Repeat } from 'lucide-react';
 
 export const CreateEventModal: React.FC = () => {
   const { isCreateModalOpen, setCreateModalOpen, createModalInitialTimes, categories, addEvent, recalculateSchedule } = useScheduleStore();
@@ -22,6 +22,13 @@ export const CreateEventModal: React.FC = () => {
   const [cannabisConsumed, setCannabisConsumed] = useState(false);
   const [isSensitive, setIsSensitive] = useState(false);
   const [displayAlias, setDisplayAlias] = useState('');
+
+  // Periodicidad / Recurrencia Personalizable
+  const [recurrenceFrequency, setRecurrenceFrequency] = useState<'none' | 'daily' | 'weekly' | 'monthly'>('none');
+  const [recurrenceInterval, setRecurrenceInterval] = useState(1);
+  const [recurrenceDaysOfWeek, setRecurrenceDaysOfWeek] = useState<number[]>([1]);
+  const [recurrenceCount, setRecurrenceCount] = useState(8);
+  const [recurrenceUntil, setRecurrenceUntil] = useState('');
 
   useEffect(() => {
     if (!isCreateModalOpen) return;
@@ -43,6 +50,12 @@ export const CreateEventModal: React.FC = () => {
     setCannabisConsumed(false);
     setIsSensitive(false);
     setDisplayAlias('');
+
+    setRecurrenceFrequency('none');
+    setRecurrenceInterval(1);
+    setRecurrenceDaysOfWeek([start.getDay() === 0 ? 7 : start.getDay()]);
+    setRecurrenceCount(8);
+    setRecurrenceUntil('');
   }, [isCreateModalOpen, createModalInitialTimes]);
 
   if (!isCreateModalOpen) return null;
@@ -63,6 +76,17 @@ export const CreateEventModal: React.FC = () => {
 
     const selectedCategory = categories.find((c) => c.id === categoryId);
 
+    let recurrenceRule: RecurrenceRule | undefined = undefined;
+    if (recurrenceFrequency !== 'none') {
+      recurrenceRule = {
+        frequency: recurrenceFrequency,
+        interval: recurrenceInterval,
+        daysOfWeek: recurrenceFrequency === 'weekly' ? recurrenceDaysOfWeek : undefined,
+        count: recurrenceCount > 0 ? recurrenceCount : undefined,
+        until: recurrenceUntil ? new Date(recurrenceUntil) : undefined,
+      };
+    }
+
     const newEvent: Event = {
       id: `evt-${Date.now()}`,
       title: title.trim(),
@@ -81,6 +105,7 @@ export const CreateEventModal: React.FC = () => {
       physicalLoad,
       energyDrain: isScheduleDisruptor ? 'high' : 'normal',
       location: location.trim() || 'Casa',
+      recurrence: recurrenceRule,
     };
 
     addEvent(newEvent);
@@ -361,6 +386,170 @@ export const CreateEventModal: React.FC = () => {
                   marginTop: '0.25rem',
                 }}
               />
+            )}
+          </div>
+
+          {/* Repetición / Periodicidad Personalizable */}
+          <div style={{ padding: '0.85rem', background: 'rgba(30, 41, 59, 0.45)', borderRadius: '8px', border: '1px solid rgba(148, 163, 184, 0.15)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.65rem' }}>
+              <Repeat size={15} color="var(--accent-blue)" />
+              <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#ffffff' }}>Periodicidad / Repetición</span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: recurrenceFrequency !== 'none' ? '1.2fr 1fr' : '1fr', gap: '0.65rem', marginBottom: recurrenceFrequency !== 'none' ? '0.65rem' : 0 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.25rem' }}>
+                  Frecuencia
+                </label>
+                <select
+                  value={recurrenceFrequency}
+                  onChange={(e) => setRecurrenceFrequency(e.target.value as any)}
+                  className="form-input"
+                  style={{
+                    width: '100%',
+                    padding: '0.45rem',
+                    borderRadius: '6px',
+                    background: 'rgba(15, 23, 42, 0.8)',
+                    border: '1px solid rgba(148, 163, 184, 0.25)',
+                    color: '#ffffff',
+                    fontSize: '0.8rem',
+                  }}
+                >
+                  <option value="none">No se repite (Único)</option>
+                  <option value="daily">Diariamente</option>
+                  <option value="weekly">Semanalmente</option>
+                  <option value="monthly">Mensualmente</option>
+                </select>
+              </div>
+
+              {recurrenceFrequency !== 'none' && (
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.25rem' }}>
+                    Intervalo
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <span style={{ fontSize: '0.75rem', color: '#cbd5e1' }}>Cada</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={52}
+                      value={recurrenceInterval}
+                      onChange={(e) => setRecurrenceInterval(Math.max(1, Number(e.target.value)))}
+                      style={{
+                        width: '55px',
+                        padding: '0.45rem',
+                        borderRadius: '6px',
+                        background: 'rgba(15, 23, 42, 0.8)',
+                        border: '1px solid rgba(148, 163, 184, 0.25)',
+                        color: '#ffffff',
+                        fontSize: '0.8rem',
+                        textAlign: 'center',
+                      }}
+                    />
+                    <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                      {recurrenceFrequency === 'daily' ? 'días' : recurrenceFrequency === 'weekly' ? 'semanas' : 'meses'}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Días de la semana para recurrencia semanal */}
+            {recurrenceFrequency === 'weekly' && (
+              <div style={{ marginTop: '0.5rem', marginBottom: '0.65rem' }}>
+                <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.35rem' }}>
+                  Días de la semana
+                </label>
+                <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                  {[
+                    { id: 1, label: 'Lun' },
+                    { id: 2, label: 'Mar' },
+                    { id: 3, label: 'Mié' },
+                    { id: 4, label: 'Jue' },
+                    { id: 5, label: 'Vie' },
+                    { id: 6, label: 'Sáb' },
+                    { id: 7, label: 'Dom' },
+                  ].map((day) => {
+                    const isSelected = recurrenceDaysOfWeek.includes(day.id);
+                    return (
+                      <button
+                        key={day.id}
+                        type="button"
+                        onClick={() => {
+                          if (isSelected) {
+                            if (recurrenceDaysOfWeek.length > 1) {
+                              setRecurrenceDaysOfWeek(recurrenceDaysOfWeek.filter((d) => d !== day.id));
+                            }
+                          } else {
+                            setRecurrenceDaysOfWeek([...recurrenceDaysOfWeek, day.id].sort());
+                          }
+                        }}
+                        style={{
+                          padding: '0.3rem 0.6rem',
+                          borderRadius: '6px',
+                          fontSize: '0.75rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          border: isSelected ? '1px solid var(--accent-blue)' : '1px solid rgba(148, 163, 184, 0.2)',
+                          background: isSelected ? 'rgba(59, 130, 246, 0.25)' : 'rgba(15, 23, 42, 0.6)',
+                          color: isSelected ? '#60a5fa' : '#94a3b8',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        {day.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Límite de repetición: cantidad de semanas o fecha */}
+            {recurrenceFrequency !== 'none' && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem', marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid rgba(148, 163, 184, 0.1)' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.725rem', color: '#94a3b8', marginBottom: '0.25rem' }}>
+                    Ocurrencias (Total)
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={52}
+                    value={recurrenceCount}
+                    onChange={(e) => setRecurrenceCount(Math.max(1, Number(e.target.value)))}
+                    style={{
+                      width: '100%',
+                      padding: '0.45rem',
+                      borderRadius: '6px',
+                      background: 'rgba(15, 23, 42, 0.8)',
+                      border: '1px solid rgba(148, 163, 184, 0.25)',
+                      color: '#ffffff',
+                      fontSize: '0.8rem',
+                    }}
+                    placeholder="Ej: 8"
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.725rem', color: '#94a3b8', marginBottom: '0.25rem' }}>
+                    Repetir hasta (opcional)
+                  </label>
+                  <input
+                    type="date"
+                    value={recurrenceUntil}
+                    onChange={(e) => setRecurrenceUntil(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '0.45rem',
+                      borderRadius: '6px',
+                      background: 'rgba(15, 23, 42, 0.8)',
+                      border: '1px solid rgba(148, 163, 184, 0.25)',
+                      color: '#ffffff',
+                      fontSize: '0.8rem',
+                    }}
+                  />
+                </div>
+              </div>
             )}
           </div>
 

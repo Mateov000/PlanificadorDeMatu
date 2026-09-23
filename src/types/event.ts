@@ -19,6 +19,23 @@ export type ArchetypeType =
 export type EnergyDrain = 'low' | 'normal' | 'high';
 
 /**
+ * Frecuencia de periodicidad configurable
+ */
+export type RecurrenceFrequency = 'daily' | 'weekly' | 'monthly';
+
+/**
+ * Regla de repetición y periodicidad personalizable
+ */
+export interface RecurrenceRule {
+  frequency: RecurrenceFrequency;
+  interval: number; // Cada cuántos días/semanas/meses (1 = semanal, 2 = quincenal)
+  daysOfWeek?: number[]; // [1..7] donde 1 = Lunes, 7 = Domingo
+  until?: Date | string; // Fecha de finalización
+  count?: number; // Cantidad total de ocurrencias
+}
+
+
+/**
  * Rasgo 1: Eventos Rígidos e Inamovibles (Puntualidad militar, Overlap = 0)
  */
 export interface LockedPillarTrait {
@@ -158,6 +175,11 @@ export interface Event {
   // Tolerancia a Tardanzas (Punctuality Matrix)
   maxLatenessMinutes?: number;      // 0 = puntualidad militar, >0 = tolerancia suave
   latenessPenaltyWeight?: number;   // Ponderación de penalización en soft constraints
+
+  // Periodicidad y Recurrencia Personalizable
+  recurrence?: RecurrenceRule;
+  recurrenceParentId?: string; // ID del evento raíz o padre de la serie
+  isRecurringInstance?: boolean;
 
   // Dimensión Económica (Moneda Local ARS)
   estimatedCostArs?: number;

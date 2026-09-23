@@ -8,6 +8,7 @@ import { ConstraintContext } from '@/constraints/contracts';
 import { solveSchedule, cascadeEvict } from '@/solver/core/scheduler';
 import { calculateScheduleDiff } from '@/solver/explainability/diffCalculator';
 import { constraintRegistry } from '@/constraints/registry';
+import { generateRecurringInstances } from '@/lib/calendar/recurrence';
 
 // Categorías nativas iniciales
 export const initialCategories: Category[] = [
@@ -431,7 +432,8 @@ interface ScheduleStore {
   // Acciones
   addEvent: (event: Event) => void;
   updateEvent: (id: string, updates: Partial<Event>) => void;
-  deleteEvent: (id: string) => void;
+  deleteEvent: (id: string, deleteSeries?: boolean) => void;
+  deleteRecurringSeries: (parentId: string) => void;
   setMetaSliders: (sliders: Partial<{ academic: number; social: number; wellness: number }>) => void;
   setParams: (params: Partial<ConstraintParams>) => void;
   setWeather: (forecasts: WeatherForecast[]) => void;
@@ -532,16 +534,44 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
   openEditModal: (event) => set({ selectedEventToEdit: event, isEditModalOpen: true }),
   closeEditModal: () => set({ selectedEventToEdit: null, isEditModalOpen: false }),
 
-  addEvent: (event) => set((state) => ({ events: [...state.events, event] })),
+  addEvent: (event) =>
+    set((state) => {
+      let eventsToAdd = [event];
+      if (event.recurrence && event.recurrence.frequency) {
+        const instances = generateRecurringInstances(event, event.recurrence);
+        eventsToAdd = [event, ...instances];
+      }
+      return { events: [...state.events, ...eventsToAdd] };
+    }),
 
   updateEvent: (id, updates) =>
     set((state) => ({
       events: state.events.map((e) => (e.id === id ? { ...e, ...updates } : e)),
     })),
 
-  deleteEvent: (id) =>
+  deleteEvent: (id, deleteSeries = false) =>
+    set((state) => {
+      const target = state.events.find((e) => e.id === id);
+      if (deleteSeries && target) {
+        const parentId = target.recurrenceParentId || (target.recurrence ? target.id : null);
+        if (parentId) {
+          return {
+            events: state.events.filter(
+              (e) => e.id !== parentId && e.recurrenceParentId !== parentId
+            ),
+          };
+        }
+      }
+      return {
+        events: state.events.filter((e) => e.id !== id),
+      };
+    }),
+
+  deleteRecurringSeries: (parentId: string) =>
     set((state) => ({
-      events: state.events.filter((e) => e.id !== id),
+      events: state.events.filter(
+        (e) => e.id !== parentId && e.recurrenceParentId !== parentId
+      ),
     })),
 
   addCustomConstraint: (constraint: CustomConstraint) => {
@@ -640,10 +670,15 @@ export const useScheduleStore = create<ScheduleStore>((set, get) => ({
     const result = solveSchedule(candidateEvents, context, weekMon);
     const diff = calculateScheduleDiff(thisWeekEvents, result.schedule, result.executionTimeMs, 'RECALCULATE');
 
+    if (diff.items.length === 0) {
+      diff.summary = '¡Tu agenda ya se encuentra en su distribución matemática óptima! Todos tus turnos fijos, descansos biológicos y metas de estudio respetan las restricciones sin conflictos.';
+    }
+
     set({
       events: [...otherWeeksEvents, ...result.schedule],
       proposedSchedule: result.schedule,
       activeDiff: diff,
+      isDiffModalOpen: true,
     });
   },
 

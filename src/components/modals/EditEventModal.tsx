@@ -14,6 +14,7 @@ import {
   Shield,
   Brain,
   Sparkles,
+  Repeat,
 } from 'lucide-react';
 
 export const EditEventModal: React.FC = () => {
@@ -97,6 +98,24 @@ export const EditEventModal: React.FC = () => {
     recalculateSchedule();
   };
 
+  const isRecurring = Boolean(selectedEventToEdit.recurrenceParentId || selectedEventToEdit.recurrence);
+
+  const handleDeleteOnlyThis = () => {
+    if (confirm(`¿Eliminar sólo esta ocurrencia de "${selectedEventToEdit.title}"?`)) {
+      deleteEvent(selectedEventToEdit.id, false);
+      closeEditModal();
+      recalculateSchedule();
+    }
+  };
+
+  const handleDeleteEntireSeries = () => {
+    if (confirm(`¿Eliminar TODA la serie recurrente de "${selectedEventToEdit.title}"? (Se borrarán todas sus repeticiones)`)) {
+      deleteEvent(selectedEventToEdit.id, true);
+      closeEditModal();
+      recalculateSchedule();
+    }
+  };
+
   const handleDelete = () => {
     if (confirm(`¿Eliminar el evento "${selectedEventToEdit.title}"?`)) {
       deleteEvent(selectedEventToEdit.id);
@@ -141,9 +160,30 @@ export const EditEventModal: React.FC = () => {
               <Sparkles size={18} color={currentCategory?.color || '#3b82f6'} />
             </div>
             <div>
-              <h2 style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0, color: '#ffffff' }}>
-                Editar Evento
-              </h2>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <h2 style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0, color: '#ffffff' }}>
+                  Editar Evento
+                </h2>
+                {isRecurring && (
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      background: 'rgba(59, 130, 246, 0.15)',
+                      color: '#60a5fa',
+                      border: '1px solid rgba(59, 130, 246, 0.3)',
+                      borderRadius: '4px',
+                      fontSize: '0.7rem',
+                      padding: '2px 6px',
+                      fontWeight: 500,
+                    }}
+                  >
+                    <Repeat size={11} />
+                    Serie Periódica
+                  </span>
+                )}
+              </div>
               <span style={{ fontSize: '0.725rem', color: '#94a3b8' }}>
                 ID: {selectedEventToEdit.id}
               </span>
@@ -374,24 +414,68 @@ export const EditEventModal: React.FC = () => {
               paddingTop: '1rem',
             }}
           >
-            <button
-              type="button"
-              onClick={handleDelete}
-              className="btn btn-secondary"
-              style={{
-                color: '#f87171',
-                borderColor: 'rgba(239, 68, 68, 0.4)',
-                background: 'rgba(239, 68, 68, 0.1)',
-                padding: '0.5rem 1rem',
-                fontSize: '0.825rem',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-              }}
-            >
-              <Trash2 size={15} />
-              <span>Eliminar</span>
-            </button>
+            {isRecurring ? (
+              <div style={{ display: 'flex', gap: '0.4rem' }}>
+                <button
+                  type="button"
+                  onClick={handleDeleteOnlyThis}
+                  className="btn btn-secondary"
+                  title="Eliminar sólo esta ocurrencia de la serie"
+                  style={{
+                    color: '#fca5a5',
+                    borderColor: 'rgba(239, 68, 68, 0.3)',
+                    background: 'rgba(239, 68, 68, 0.08)',
+                    padding: '0.45rem 0.75rem',
+                    fontSize: '0.75rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                  }}
+                >
+                  <Trash2 size={13} />
+                  <span>Sólo esta ocurrencia</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeleteEntireSeries}
+                  className="btn btn-secondary"
+                  title="Eliminar la serie completa con todas sus repeticiones"
+                  style={{
+                    color: '#ef4444',
+                    borderColor: 'rgba(239, 68, 68, 0.5)',
+                    background: 'rgba(239, 68, 68, 0.18)',
+                    padding: '0.45rem 0.75rem',
+                    fontSize: '0.75rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    fontWeight: 600,
+                  }}
+                >
+                  <Repeat size={13} />
+                  <span>Toda la serie</span>
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={handleDelete}
+                className="btn btn-secondary"
+                style={{
+                  color: '#f87171',
+                  borderColor: 'rgba(239, 68, 68, 0.4)',
+                  background: 'rgba(239, 68, 68, 0.1)',
+                  padding: '0.5rem 1rem',
+                  fontSize: '0.825rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                }}
+              >
+                <Trash2 size={15} />
+                <span>Eliminar</span>
+              </button>
+            )}
 
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <button
